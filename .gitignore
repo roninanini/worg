@@ -1,26 +1,4 @@
 # Pastas do projeto que devem ser apenas locais
 .bkp/
 
-# Virtual Environment (NUNCA versionar)
-.venv/
-venv/
-env/
-.env/
 
-# IDE (não versionar - cada dev tem sua configuração)
-.idea/
-.vscode/
-*.swp
-*.swo
-
-# Python cache
-__pycache__/
-*.py[cod]
-*$py.class
-
-# Sistema
-.DS_Store
-Thumbs.db
-
-# Pastas específicas do projeto
-.proxyai/
