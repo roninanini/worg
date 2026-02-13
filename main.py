@@ -10,13 +10,13 @@ from Libs.soil import sensor_soil
 
 # -----------ATRIBUTES-----------#
 io = IO()
-SSID = 'PODER POPULAR - 2.4G'
-PASSWORD = 'morganachico31'
-MQTT_ID = 'worg_esp'
-MQTT_SERVER = '147.93.12.223'
-MQTT_PORT = 1883
-MQTT_USER = 'roninanini'
-MQTT_PASSWORD = '7$eVY:F5CC>oY6~ l[LG`1z)9*C[c.'
+SSID = '@@@'
+PASSWORD = '@@@'
+MQTT_ID = '@@@'
+MQTT_SERVER = '@@@'
+MQTT_PORT = @@@
+MQTT_USER = '@@@'
+MQTT_PASSWORD = '@@@'
 i2c = I2C(0, scl=Pin(22), sda=Pin(21), freq=400000)
 mcp = Libs.mcp23017.MCP23017(i2c, 0x27)
 ds = DS3231(i2c)
