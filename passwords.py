@@ -1,3 +1,5 @@
+
+#Here you fill in the access passwords
 SSID = '@@@'
 PASSWORD = '@@@'
 MQTT_ID = '@@@'
