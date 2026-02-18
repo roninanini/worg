@@ -7,7 +7,7 @@ from Libs.ds3231 import DS3231
 from machine import I2C, Pin, ADC
 import Libs.mcp23017
 from Libs.soil import sensor_soil
-import passwords
+import bkp.passwords as passwords #Use just 'import passwords'
 
 # -----------ATRIBUTES-----------#
 io = IO()
