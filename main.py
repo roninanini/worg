@@ -38,26 +38,20 @@ def setup_wifi():
 def write_data(topic, message):
     topic = topic.decode('utf-8')
     value = message.decode('utf-8')
-    plant1, plant2, plant3, plant4 = read_data()
-    if topic == 'worg/phase_plant1':
-        plant1 = value
-    elif topic == 'worg/phase_plant2':
-        plant2 = value
-    elif topic == 'worg/phase_plant3':
-        plant3 = value
-    elif topic == 'worg/phase_plant4':
-        plant4 = value
+    plant_phase = read_data()
+    if topic == 'worg/plant_phase':
+        plant_phase = value
 
     with open('data.csv', 'w') as f:
-        f.write(f'{plant1},{plant2},{plant3},{plant4}')
+        f.write(f'{plant_phase}')
 
 def read_data():
     try:
         with open('data.csv', 'r') as f:
-            line = f.read().split(',')
-            return line[0], line[1], line[2], line[3]
+            line = f.read()
+            return line.strip()
     except Exception as e:
-        return "0", "0", "0", "0"
+        return "0"
 
 #SETTING CONDITIONS TO CONTROL
 def water_plant(soil_moisture, state, water_pump, plant_name=""):
@@ -84,16 +78,18 @@ def water_plant(soil_moisture, state, water_pump, plant_name=""):
             sleep(10)  # Pause for 10 seconds
             cycles -= 1  # Decrement counter
 
-#MQTT CONNECT
-client_mqtt = MQTTClient(MQTT_ID, server=MQTT_SERVER, port=MQTT_PORT, user=MQTT_USER, password=MQTT_PASSWORD, keepalive=300)
-client_mqtt.set_callback(write_data)
-sleep(10)
+
 
 wlan = None
 try:
     wlan = setup_wifi()
 except Exception as e:
     pass
+
+#MQTT CONNECT
+client_mqtt = MQTTClient(MQTT_ID, server=MQTT_SERVER, port=MQTT_PORT, user=MQTT_USER, password=MQTT_PASSWORD, keepalive=300)
+client_mqtt.set_callback(write_data)
+sleep(10)
 
 while True:
     if wlan is None:
@@ -102,10 +98,6 @@ while True:
         except:
             sleep(5)
             continue
-    try:
-        client_mqtt.check_msg()
-    except Exception as e:
-        pass
 
     if not wlan.isconnected():
         print("WiFi desconectado. Tentando reconectar...")
@@ -118,10 +110,8 @@ while True:
         if wlan.isconnected():
             try:
                 client_mqtt.connect()
-                client_mqtt.subscribe('worg/phase_plant1', qos=1)
-                client_mqtt.subscribe('worg/phase_plant2', qos=1)
-                client_mqtt.subscribe('worg/phase_plant3', qos=1)
-                client_mqtt.subscribe('worg/phase_plant4', qos=1)
+                client_mqtt.check_msg()
+                client_mqtt.subscribe('worg/plant_phase', qos=1)
             except Exception as e:
                 print("Erro na reconexão MQTT")
                 pass
@@ -191,13 +181,12 @@ while True:
             client_mqtt.publish('worg/soil2', f'{{"soil_moisture 2": {soil_2}}}', retain=False, qos=1)
             client_mqtt.publish('worg/soil3', f'{{"soil_moisture 3": {soil_3}}}', retain=False, qos=1)
             client_mqtt.publish('worg/soil4', f'{{"soil_moisture 4": {soil_4}}}', retain=False, qos=1)
-
+            print('mqtt enviado...')
         except Exception as e:
             try:
                 client_mqtt.disconnect()
             except:
                 pass
-
 
     try:
         # CONTROL
