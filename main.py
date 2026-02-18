@@ -21,7 +21,7 @@ MQTT_PASSWORD = passwords.MQTT_PASSWORD
 i2c = I2C(0, scl=Pin(22), sda=Pin(21), freq=400000)
 mcp = Libs.mcp23017.MCP23017(i2c, 0x27)
 ds = DS3231(i2c)
-circle = 5*60
+circle = 10*60
 
 # -----------INTERNET CONECTION ----------#
 def setup_wifi():
@@ -34,6 +34,7 @@ def setup_wifi():
         print("Tentando conexão...")
     return wlan
 
+# -----------SETTING PARAMETER OF LIGHT AND ENVIRONMENT ----------#
 def write_data(topic, message):
     topic = topic.decode('utf-8')
     value = message.decode('utf-8')
@@ -58,9 +59,7 @@ def read_data():
     except Exception as e:
         return "0", "0", "0", "0"
 
-client_mqtt = MQTTClient(MQTT_ID, server=MQTT_SERVER, port=MQTT_PORT, user=MQTT_USER, password=MQTT_PASSWORD, keepalive=300)
-client_mqtt.set_callback(write_data)
-
+#SETTING CONDITIONS TO CONTROL
 def water_plant(soil_moisture, state, water_pump, plant_name=""):
     """Water a plant based on soil moisture and state"""
     if soil_moisture < 10:
@@ -85,29 +84,50 @@ def water_plant(soil_moisture, state, water_pump, plant_name=""):
             sleep(10)  # Pause for 10 seconds
             cycles -= 1  # Decrement counter
 
+#MQTT CONNECT
+client_mqtt = MQTTClient(MQTT_ID, server=MQTT_SERVER, port=MQTT_PORT, user=MQTT_USER, password=MQTT_PASSWORD, keepalive=300)
+client_mqtt.set_callback(write_data)
 sleep(10)
-print("Leitura individual :", sensor_soil.PLANT_1.read(), sensor_soil.PLANT_2.read(), sensor_soil.PLANT_3.read(), sensor_soil.PLANT_4.read())
-print("Leitura media: ", sensor_soil.AVERAGE_PLANT1, sensor_soil.AVERAGE_PLANT2, sensor_soil.AVERAGE_PLANT3, sensor_soil.AVERAGE_PLANT4)
+
+wlan = None
+try:
+    wlan = setup_wifi()
+except Exception as e:
+    pass
 
 while True:
-    wlan = setup_wifi()
-    timeout = 10
-    start_time_wifi = time.time()
+    if wlan is None:
+        try:
+            wlan = setup_wifi()
+        except:
+            sleep(5)
+            continue
+    try:
+        client_mqtt.check_msg()
+    except Exception as e:
+        pass
 
-    while not wlan.isconnected():
-        if time.time() - start_time_wifi > timeout:
-            break
-        sleep(1)
+    if not wlan.isconnected():
+        print("WiFi desconectado. Tentando reconectar...")
+        wlan = setup_wifi()
+        timeout = 20
+        start = time.time()
+        while not wlan.isconnected() and time.time() - start < timeout:
+            sleep(1)
+
+        if wlan.isconnected():
+            try:
+                client_mqtt.connect()
+                client_mqtt.subscribe('worg/phase_plant1', qos=1)
+                client_mqtt.subscribe('worg/phase_plant2', qos=1)
+                client_mqtt.subscribe('worg/phase_plant3', qos=1)
+                client_mqtt.subscribe('worg/phase_plant4', qos=1)
+            except Exception as e:
+                print("Erro na reconexão MQTT")
+                pass
 
     if wlan.isconnected():
         try:
-            client_mqtt.connect()
-            client_mqtt.subscribe('worg/phase_plant1', qos=1)
-            client_mqtt.subscribe('worg/phase_plant2', qos=1)
-            client_mqtt.subscribe('worg/phase_plant3', qos=1)
-            client_mqtt.subscribe('worg/phase_plant4', qos=1)
-            client_mqtt.check_msg()
-
             try:
                 temp = io.temp()
                 humid = io.humid()
@@ -178,6 +198,7 @@ while True:
             except:
                 pass
 
+
     try:
         # CONTROL
         if io.temp() < 18:
@@ -217,7 +238,29 @@ while True:
             except Exception as e:
                 pass
 
-        if io.vpd() < 0.8:
+        states = read_data()
+        if int(states[0]) == 1:
+            vpd_min = 0.5
+            vpd_max = 0.7
+            hour_min = 10
+            hour_max = 16
+        elif int(states[0]) == 2:
+            vpd_min = 0.7
+            vpd_max = 1
+            hour_min = 10
+            hour_max = 16
+        elif int(states[0]) == 3:
+            vpd_min = 1
+            vpd_max = 1.3
+            hour_min = 7
+            hour_max = 19
+        else:
+            vpd_min = 0.8
+            vpd_max = 1.2
+            hour_min = 10
+            hour_max = 16
+
+        if io.vpd() < vpd_min:
             io.deshumidifier(1)
             io.humidifier(0)
             try:
@@ -225,7 +268,7 @@ while True:
                 client_mqtt.publish('worg/status/humidifier', f'{{"Humidifier": 0}}',retain=True, qos=1)
             except Exception as e:
                 pass
-        elif 0.8 <= io.vpd() < 1.2:
+        elif vpd_min <= io.vpd() < vpd_max:
             io.deshumidifier(0)
             io.humidifier(0)
             try:
@@ -244,7 +287,7 @@ while True:
 
         # Light control
         HOUR = ds.hour()
-        if 10 <= HOUR < 16:
+        if hour_min <= HOUR < hour_max:
             io.lighting(0)
             try:
                 client_mqtt.publish('worg/status/lighting', f'{{"Lighting": 0}}',retain=True, qos=1)
@@ -257,24 +300,24 @@ while True:
             except Exception as e:
                 pass
 
-        #Usage for all 4 plants
+        #CONTROLLING PLANTS WATERING
         states = read_data()
         water_plant(io.soil_1(), int(states[0]), io.water_pump_1, "Plant 1")
         try:
             client_mqtt.publish('worg/status/water_pump1', f'{{"Water Pump 01": {"1" if mcp.pin(3) else "0"}}}',retain=True, qos=1)
         except Exception as e:
             pass
-        water_plant(io.soil_2(), int(states[1]), io.water_pump_2, "Plant 2")
+        water_plant(io.soil_2(), int(states[0]), io.water_pump_2, "Plant 2")
         try:
             client_mqtt.publish('worg/status/water_pump2', f'{{"Water Pump 02": {"1" if mcp.pin(2) else "0"}}}',retain=True, qos=1)
         except Exception as e:
             pass
-        water_plant(io.soil_3(), int(states[2]), io.water_pump_3, "Plant 3")
+        water_plant(io.soil_3(), int(states[0]), io.water_pump_3, "Plant 3")
         try:
             client_mqtt.publish('worg/status/water_pump3', f'{{"Water Pump 03": {"1" if mcp.pin(1) else "0"}}}',retain=True, qos=1)
         except Exception as e:
             pass
-        water_plant(io.soil_4(), int(states[3]), io.water_pump_4, "Plant 4")
+        water_plant(io.soil_4(), int(states[0]), io.water_pump_4, "Plant 4")
         try:
             client_mqtt.publish('worg/status/water_pump4', f'{{"Water Pump 04": {"1" if mcp.pin(0) else "0"}}}',retain=True, qos=1)
         except Exception as e:
