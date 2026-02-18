@@ -7,16 +7,17 @@ from Libs.ds3231 import DS3231
 from machine import I2C, Pin, ADC
 import Libs.mcp23017
 from Libs.soil import sensor_soil
+import passwords
 
 # -----------ATRIBUTES-----------#
 io = IO()
-SSID = '@@@'
-PASSWORD = '@@@'
-MQTT_ID = '@@@'
-MQTT_SERVER = '@@@'
-MQTT_PORT = @@@
-MQTT_USER = '@@@'
-MQTT_PASSWORD = '@@@'
+SSID = passwords.SSID
+PASSWORD = passwords.PASSWORD
+MQTT_ID = passwords.MQTT_ID
+MQTT_SERVER = passwords.MQTT_SERVER
+MQTT_PORT = passwords.MQTT_PORT
+MQTT_USER = passwords.MQTT_USER
+MQTT_PASSWORD = passwords.MQTT_PASSWORD
 i2c = I2C(0, scl=Pin(22), sda=Pin(21), freq=400000)
 mcp = Libs.mcp23017.MCP23017(i2c, 0x27)
 ds = DS3231(i2c)
