@@ -2,5 +2,6 @@
 .bkp/
 .idea/
 .gitignore
+.passwords.py
 
 

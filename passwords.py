@@ -7,3 +7,6 @@ MQTT_SERVER = '@@@'
 MQTT_PORT = '@@@'
 MQTT_USER = '@@@'
 MQTT_PASSWORD = '@@@'
+
+
+teste
