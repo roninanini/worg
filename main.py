@@ -7,10 +7,11 @@ from Libs.ds3231 import DS3231
 from machine import I2C, Pin, ADC
 import Libs.mcp23017
 from Libs.soil import sensor_soil
-import bkp.passwords as passwords #Use just 'import passwords'
+import passwords
 
 # -----------ATRIBUTES-----------#
 io = IO()
+
 SSID = passwords.SSID
 PASSWORD = passwords.PASSWORD
 MQTT_ID = passwords.MQTT_ID
@@ -18,6 +19,7 @@ MQTT_SERVER = passwords.MQTT_SERVER
 MQTT_PORT = passwords.MQTT_PORT
 MQTT_USER = passwords.MQTT_USER
 MQTT_PASSWORD = passwords.MQTT_PASSWORD
+
 i2c = I2C(0, scl=Pin(22), sda=Pin(21), freq=400000)
 mcp = Libs.mcp23017.MCP23017(i2c, 0x27)
 ds = DS3231(i2c)
@@ -27,11 +29,11 @@ circle = 10*60
 def setup_wifi():
     wlan = network.WLAN(network.STA_IF)
     wlan.active(True)
-    print("Conectando ao WiFi...")
+    print("Connecting to WiFi...")
     print(f"SSID: {SSID}")
     if not wlan.isconnected():
         wlan.connect(SSID, PASSWORD)
-        print("Tentando conexão...")
+        print("Trying connection...")
     return wlan
 
 # -----------SETTING PARAMETER OF LIGHT AND ENVIRONMENT ----------#
@@ -108,7 +110,7 @@ while True:
         pass
 
     if not wlan.isconnected():
-        print("WiFi desconectado. Tentando reconectar...")
+        print("WiFi disconnected, trying connection...")
         wlan = setup_wifi()
         timeout = 20
         start = time.time()
@@ -123,7 +125,7 @@ while True:
                 client_mqtt.subscribe('worg/phase_plant3', qos=1)
                 client_mqtt.subscribe('worg/phase_plant4', qos=1)
             except Exception as e:
-                print("Erro na reconexão MQTT")
+                print("MQTT reconnection error")
                 pass
 
     if wlan.isconnected():
@@ -197,7 +199,6 @@ while True:
                 client_mqtt.disconnect()
             except:
                 pass
-
 
     try:
         # CONTROL

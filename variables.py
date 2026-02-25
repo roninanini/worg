@@ -24,7 +24,6 @@ class IO:
         self.VPD = 0
         self.VP = 0
         self.VPL = 0
-        # Adicione estas variáveis para armazenar estados
         self.water_pump_1_state = 0
         self.water_pump_2_state = 0
         self.water_pump_3_state = 0
@@ -38,7 +37,7 @@ class IO:
     # --------------- OUTPUTS ---------------#
     def water_pump_1(self, state):
         mcp.pin(3, mode=0, value=state)
-        self.water_pump_1_state = state  # Armazena o estado
+        self.water_pump_1_state = state  # store the state
 
     def water_pump_2(self, state):
         mcp.pin(2, mode=0, value=state)
