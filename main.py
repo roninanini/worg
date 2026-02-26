@@ -64,11 +64,11 @@ def water_plant(soil_moisture, state, water_pump, plant_name=""):
         if state == 0:
             cycles = 0
         elif state == 1:
-            cycles = 2
+            cycles = 3
         elif state == 2:
-            cycles = 4
-        elif state == 3:
             cycles = 6
+        elif state == 3:
+            cycles = 12
         else:
             cycles = 0
 
