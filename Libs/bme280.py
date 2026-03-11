@@ -1,3 +1,5 @@
+#repo: https://github.com/robert-hh/BME280/blob/master/bme280_float.py
+
 # Updated 2018 and 2020
 # This module is based on the below cited resources, which are all
 # based on the documentation as provided in the Bosch Data Sheet and

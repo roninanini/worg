@@ -1,3 +1,22 @@
+"""
+Copyright (C) 2025, Roni Araujo Nanini
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+You can access the source code on site: https://github.com/roninanini/worg
+"""
+
 import network
 from time import sleep
 import time
@@ -79,8 +98,6 @@ def water_plant(soil_moisture, state, water_pump, plant_name=""):
             water_pump(0)  # Turn pump OFF
             sleep(10)  # Pause for 10 seconds
             cycles -= 1  # Decrement counter
-
-
 
 wlan = None
 try:
@@ -314,7 +331,6 @@ while True:
         except Exception as e:
             pass
         print("Leitura media: ", sensor_soil.AVERAGE_PLANT1, sensor_soil.AVERAGE_PLANT2, sensor_soil.AVERAGE_PLANT3, sensor_soil.AVERAGE_PLANT4)
-
 
     except Exception as e:
         pass

@@ -1,5 +1,24 @@
+"""
+Copyright (C) 2025, Roni Araujo Nanini
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+You can access the source code on site: https://github.com/roninanini/worg
+"""
+
+
 from machine import I2C, Pin, UART
-from time import sleep
 import Libs.mcp23017
 import Libs.bme280
 from Libs.soil import sensor_soil
@@ -71,7 +90,7 @@ class IO:
         mcp.pin(11, mode=0, value=state)
         self.deshumidifier_state = state
 
-    # --------------- GETTERS PARA STATUS ---------------#
+    # --------------- GETTERS TO STATUS ---------------#
     def get_water_pump_1_status(self):
         return self.water_pump_1_state
 

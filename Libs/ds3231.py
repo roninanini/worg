@@ -1,3 +1,4 @@
+#
 #! /usr/bin/env micropython
 
 # Micropython driver for the DS3231 RTC Module
