@@ -48,11 +48,11 @@ circle = 10*60
 def setup_wifi():
     wlan = network.WLAN(network.STA_IF)
     wlan.active(True)
-    print("Connecting to WiFi...")
+    print("[STATUS]: Connecting to WiFi...")
     print(f"SSID: {SSID}")
     if not wlan.isconnected():
         wlan.connect(SSID, PASSWORD)
-        print("Trying connection...")
+        print("[STATUS]: Trying connection...")
     return wlan
 
 # -----------SETTING PARAMETER OF LIGHT AND ENVIRONMENT ----------#
@@ -78,7 +78,7 @@ def read_data():
 def water_plant(soil_moisture, state, water_pump, plant_name=""):
     """Water a plant based on soil moisture and state"""
     if soil_moisture < 10:
-        print(f"Watering {plant_name} - State: {state}")
+        print(f"[STATUS]: Watering {plant_name} - State: {state}")
         # Determine watering cycles based on state
         if state == 0:
             cycles = 0
@@ -119,7 +119,7 @@ while True:
             continue
 
     if not wlan.isconnected():
-        print("WiFi disconnected, trying connection...")
+        print("[ERROR]: WiFi trying connection...")
         wlan = setup_wifi()
         timeout = 20
         start = time.time()
@@ -131,8 +131,9 @@ while True:
                 client_mqtt.connect()
                 client_mqtt.check_msg()
                 client_mqtt.subscribe('worg/plant_phase', qos=1)
+                print("[OK]: MQTT connected")
             except Exception as e:
-                print("MQTT reconnection error")
+                print("[ERROR]: MQTT not connected")
                 pass
 
     if wlan.isconnected():
@@ -142,11 +143,13 @@ while True:
                 humid = io.humid()
                 pressure = io.pressure()
                 vpd = io.vpd()
+                print("[OK]: Getting data from sensor BME280")
             except Exception as e:
                 temp = 25
                 humid = 60
                 pressure = 950
                 vpd = 1
+                print("[ERROR]: Getting data from sensor BME280")
             try:
                 voltage = io.voltage()
                 current_val = io.current()
@@ -154,6 +157,7 @@ while True:
                 active_energy = io.active_energy()
                 frequency = io.frequency()
                 power_factor = io.power_factor()
+                print("[OK]: Getting data from module PZEM")
             except Exception as e:
                 voltage = 120
                 current_val = 2
@@ -161,30 +165,40 @@ while True:
                 active_energy = 1
                 frequency = 60
                 power_factor = 1
+                print("ERROR]: Getting data from module PZEM")
 
             # SENSORES DE SOLO
             try:
                 soil_1 = str(io.soil_1())
+                print("[OK]: Getting data from Soil 1")
             except Exception as e:
                 soil_1 = '4095'
+                print("[ERROR]: Getting data from Soil 1")
             try:
                 soil_2 = str(io.soil_2())
+                print("[OK]: Getting data from Soil 2")
             except Exception as e:
                 soil_2 = '4095'
+                print("[ERROR]: Getting data from Soil 2")
             try:
                 soil_3 = str(io.soil_3())
+                print("[OK]: Getting data from Soil 3")
             except Exception as e:
                 soil_3 = '4095'
+                print("[ERROR]: Getting data from Soil 3")
             try:
                 soil_4 = str(io.soil_4())
+                print("[OK]: Gettinf data from Soil 4")
             except Exception as e:
                 soil_4 = '4095'
+                print("[ERROR]: Getting data from Soil 4")
 
             # -----------POINTS OF WEATHER TO GRAFANA -----------#
             client_mqtt.publish('worg/weather/temp', f'{{"temperature": {temp}}}', retain=False, qos=1)
             client_mqtt.publish('worg/weather/humid', f'{{"humidity": {humid}}}', retain=False, qos=1)
             client_mqtt.publish('worg/weather/pressure', f'{{"pressure": {pressure}}}', retain=False, qos=1)
             client_mqtt.publish('worg/weather/vpd', f'{{"Vapour-pressure deficit": {vpd}}}', retain=False, qos=1)
+            print("[OK]: MQTT temperature")
 
             # -----------ELECTRICAL POINTS TO GRAFANA -----------#
             client_mqtt.publish('worg/electrical/voltage', f'{{"voltage": {voltage}}}', retain=False, qos=1)
@@ -193,6 +207,7 @@ while True:
             client_mqtt.publish('worg/electrical/active_energy', f'{{"active energy": {active_energy}}}', retain=False, qos=1)
             client_mqtt.publish('worg/electrical/frequency', f'{{"frequency": {frequency}}}', retain=False, qos=1)
             client_mqtt.publish('worg/electrical/power_factor', f'{{"power factor": {power_factor}}}', retain=False, qos=1)
+            print("[OK]: MQTT Modbus")
 
             # -----------POINTS OF SOIL TO GRAFANA -----------#
 
@@ -200,12 +215,15 @@ while True:
             client_mqtt.publish('worg/soil2', f'{{"soil_moisture 2": {soil_2}}}', retain=False, qos=1)
             client_mqtt.publish('worg/soil3', f'{{"soil_moisture 3": {soil_3}}}', retain=False, qos=1)
             client_mqtt.publish('worg/soil4', f'{{"soil_moisture 4": {soil_4}}}', retain=False, qos=1)
-            print('mqtt enviado...')
+            print('[OK]: MQTT Soil')
         except Exception as e:
             try:
                 client_mqtt.disconnect()
+                print("[OK]: MQTT Disconnect")
             except:
                 pass
+                print("[ERROR]: Disconnect failed")
+
 
     try:
         # CONTROL
@@ -213,10 +231,20 @@ while True:
             # Too cold
             io.fan_1(0)
             io.fan_2(0)
+            ("[STATUS]: FAN 1:ON, FAN 2:OFF")
             try:
                 client_mqtt.publish('worg/status/fan_1', f'{{"Fan 01": 0}}', retain=True,qos=1)
                 client_mqtt.publish('worg/status/fan_2', f'{{"Fan 02": 0}}', retain=True,qos=1)
+                ("[QTT,  FAN 1:ON, FAN 2:OFF")
+
+
+                //###################################################################################################
+
+
+
+
             except Exception as e:
+                ("")
                 pass
         elif 18 <= io.temp() < 22:
             # Slightly warm - minimal cooling
