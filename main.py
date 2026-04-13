@@ -42,7 +42,8 @@ MQTT_PASSWORD = passwords.MQTT_PASSWORD
 i2c = I2C(0, scl=Pin(22), sda=Pin(21), freq=400000)
 mcp = Libs.mcp23017.MCP23017(i2c, 0x27)
 ds = DS3231(i2c)
-circle = 10*60
+circle = 10 * 60
+
 
 # -----------INTERNET CONECTION ----------#
 def setup_wifi():
@@ -50,10 +51,27 @@ def setup_wifi():
     wlan.active(True)
     print("[STATUS]: Connecting to WiFi...")
     print(f"SSID: {SSID}")
+
     if not wlan.isconnected():
         wlan.connect(SSID, PASSWORD)
         print("[STATUS]: Trying connection...")
+        timeout = 15
+        start_time = time.time()
+
+        while not wlan.isconnected() and (time.time() - start_time) < timeout:
+            print(".", end="")
+            sleep(1)
+        print()
+
+        if wlan.isconnected():
+            print(f"[OK]: WiFi connected!")
+            print(f"IP: {wlan.ifconfig()[0]}")
+            print(f"Signal: {wlan.status('rssi')} dBm")
+        else:
+            print(f"[ERROR]: WiFi failed!")
+
     return wlan
+
 
 # -----------SETTING PARAMETER OF LIGHT AND ENVIRONMENT ----------#
 def write_data(topic, message):
@@ -66,6 +84,7 @@ def write_data(topic, message):
     with open('data.csv', 'w') as f:
         f.write(f'{plant_phase}')
 
+
 def read_data():
     try:
         with open('data.csv', 'r') as f:
@@ -74,7 +93,8 @@ def read_data():
     except Exception as e:
         return "0"
 
-#SETTING CONDITIONS TO CONTROL
+
+# SETTING CONDITIONS TO CONTROL
 def water_plant(soil_moisture, state, water_pump, plant_name=""):
     """Water a plant based on soil moisture and state"""
     if soil_moisture < 10:
@@ -90,53 +110,56 @@ def water_plant(soil_moisture, state, water_pump, plant_name=""):
             cycles = 12
         else:
             cycles = 0
-
+        total_cycles = cycles
         # Execute watering cycles
         while cycles > 0:
+            print(f"Cycle {cycles} of {total_cycles}")
             water_pump(1)  # Turn pump ON
             sleep(10)  # Water for 10 seconds
             water_pump(0)  # Turn pump OFF
             sleep(10)  # Pause for 10 seconds
             cycles -= 1  # Decrement counter
 
-wlan = None
-try:
-    wlan = setup_wifi()
-except Exception as e:
-    pass
+wlan = setup_wifi()
+client_mqtt = None
 
-#MQTT CONNECT
-client_mqtt = MQTTClient(MQTT_ID, server=MQTT_SERVER, port=MQTT_PORT, user=MQTT_USER, password=MQTT_PASSWORD, keepalive=300)
-client_mqtt.set_callback(write_data)
+if wlan.isconnected():
+    try:
+        client_mqtt = MQTTClient(MQTT_ID, server=MQTT_SERVER, port=MQTT_PORT, user=MQTT_USER, password=MQTT_PASSWORD, keepalive=300)
+        client_mqtt.set_callback(write_data)
+        client_mqtt.connect()
+        client_mqtt.subscribe('worg/plant_phase', qos=1)
+        print("[OK]: MQTT connected")
+    except Exception as e:
+        print(f"[ERROR]: MQTT connection failed: {e}")
+        client_mqtt = None
+else:
+    print("[ERROR]: Cannot connect MQTT - WiFi not connected")
+
 sleep(10)
 
 while True:
-    if wlan is None:
-        try:
-            wlan = setup_wifi()
-        except:
-            sleep(5)
-            continue
-
     if not wlan.isconnected():
-        print("[ERROR]: WiFi trying connection...")
+        print("[ERROR]: WiFi disconnected, reconnecting...")
         wlan = setup_wifi()
-        timeout = 20
-        start = time.time()
-        while not wlan.isconnected() and time.time() - start < timeout:
-            sleep(1)
 
         if wlan.isconnected():
             try:
+                if client_mqtt is None:
+                    client_mqtt = MQTTClient(MQTT_ID, server=MQTT_SERVER, port=MQTT_PORT, user=MQTT_USER,
+                                             password=MQTT_PASSWORD, keepalive=300)
+                    client_mqtt.set_callback(write_data)
                 client_mqtt.connect()
-                client_mqtt.check_msg()
                 client_mqtt.subscribe('worg/plant_phase', qos=1)
-                print("[OK]: MQTT connected")
+                print("[OK]: MQTT reconnected")
             except Exception as e:
-                print("[ERROR]: MQTT not connected")
-                pass
+                print(f"[ERROR]: MQTT reconnect failed: {e}")
+                client_mqtt = None
+        else:
+            sleep(5)
+            continue
 
-    if wlan.isconnected():
+    if wlan.isconnected() and client_mqtt is not None:
         try:
             try:
                 temp = io.temp()
@@ -165,9 +188,9 @@ while True:
                 active_energy = 1
                 frequency = 60
                 power_factor = 1
-                print("ERROR]: Getting data from module PZEM")
+                print("[ERROR]: Getting data from module PZEM")
 
-            # SENSORES DE SOLO
+            # SOIL SENSORS
             try:
                 soil_1 = str(io.soil_1())
                 print("[OK]: Getting data from Soil 1")
@@ -203,14 +226,16 @@ while True:
             # -----------ELECTRICAL POINTS TO GRAFANA -----------#
             client_mqtt.publish('worg/electrical/voltage', f'{{"voltage": {voltage}}}', retain=False, qos=1)
             client_mqtt.publish('worg/electrical/current', f'{{"current": {current_val}}}', retain=False, qos=1)
-            client_mqtt.publish('worg/electrical/active_power', f'{{"active power": {active_power}}}', retain=False, qos=1)
-            client_mqtt.publish('worg/electrical/active_energy', f'{{"active energy": {active_energy}}}', retain=False, qos=1)
+            client_mqtt.publish('worg/electrical/active_power', f'{{"active power": {active_power}}}', retain=False,
+                                qos=1)
+            client_mqtt.publish('worg/electrical/active_energy', f'{{"active energy": {active_energy}}}', retain=False,
+                                qos=1)
             client_mqtt.publish('worg/electrical/frequency', f'{{"frequency": {frequency}}}', retain=False, qos=1)
-            client_mqtt.publish('worg/electrical/power_factor', f'{{"power factor": {power_factor}}}', retain=False, qos=1)
+            client_mqtt.publish('worg/electrical/power_factor', f'{{"power factor": {power_factor}}}', retain=False,
+                                qos=1)
             print("[OK]: MQTT Modbus")
 
             # -----------POINTS OF SOIL TO GRAFANA -----------#
-
             client_mqtt.publish('worg/soil1', f'{{"soil_moisture 1": {soil_1}}}', retain=False, qos=1)
             client_mqtt.publish('worg/soil2', f'{{"soil_moisture 2": {soil_2}}}', retain=False, qos=1)
             client_mqtt.publish('worg/soil3', f'{{"soil_moisture 3": {soil_3}}}', retain=False, qos=1)
@@ -231,49 +256,49 @@ while True:
             io.fan_1(0)
             io.fan_2(0)
             print("[CONTROL]: FAN 1:OFF, FAN 2:OFF")
-            try:
-                client_mqtt.publish('worg/status/fan_1', f'{{"Fan 01": 0}}', retain=True,qos=1)
-                client_mqtt.publish('worg/status/fan_2', f'{{"Fan 02": 0}}', retain=True,qos=1)
-                print("[OK]: MQTT -- FAN 1:OFF, FAN 2:OFF")
-            except Exception as e:
-                print("[ERROR]: MQTT -- FAN 1:OFF, FAN 2:OFF")
-                pass
+            if client_mqtt is not None:
+                try:
+                    client_mqtt.publish('worg/status/fan_1', f'{{"Fan 01": 0}}', retain=True, qos=1)
+                    client_mqtt.publish('worg/status/fan_2', f'{{"Fan 02": 0}}', retain=True, qos=1)
+                    print("[OK]: MQTT -- FAN 1:OFF, FAN 2:OFF")
+                except Exception as e:
+                    print("[ERROR]: MQTT -- FAN 1:OFF, FAN 2:OFF")
         elif 18 <= io.temp() < 22:
             # Slightly warm - minimal cooling
             io.fan_1(1)
             io.fan_2(0)
             print("[CONTROL]: FAN 1:ON, FAN 2:OFF")
-            try:
-                client_mqtt.publish('worg/status/fan_1', f'{{"Fan 01": 1}}', retain=True,qos=1)
-                client_mqtt.publish('worg/status/fan_2', f'{{"Fan 02": 0}}', retain=True,qos=1)
-                print("[OK]: MQTT -- FAN 1:ON, FAN 2:OFF")
-            except Exception as e:
-                print("[ERROR]: MQTT -- FAN 1:ON, FAN 2:OFF")
-                pass
+            if client_mqtt is not None:
+                try:
+                    client_mqtt.publish('worg/status/fan_1', f'{{"Fan 01": 1}}', retain=True, qos=1)
+                    client_mqtt.publish('worg/status/fan_2', f'{{"Fan 02": 0}}', retain=True, qos=1)
+                    print("[OK]: MQTT -- FAN 1:ON, FAN 2:OFF")
+                except Exception as e:
+                    print("[ERROR]: MQTT -- FAN 1:ON, FAN 2:OFF")
         elif 22 <= io.temp() < 25:
             # Moderately warm - more cooling
             io.fan_1(1)
             io.fan_2(1)
             print("[CONTROL]: FAN 1:ON, FAN 2:ON")
-            try:
-                client_mqtt.publish('worg/status/fan_1', f'{{"Fan 01": 1}}', retain=True,qos=1)
-                client_mqtt.publish('worg/status/fan_2', f'{{"Fan 02": 1}}', retain=True,qos=1)
-                print("[OK]: MQTT -- FAN 1:ON, FAN 2:ON")
-            except Exception as e:
-                print("[ERROR]: MQTT -- FAN 1:ON, FAN 2:ON")
-                pass
+            if client_mqtt is not None:
+                try:
+                    client_mqtt.publish('worg/status/fan_1', f'{{"Fan 01": 1}}', retain=True, qos=1)
+                    client_mqtt.publish('worg/status/fan_2', f'{{"Fan 02": 1}}', retain=True, qos=1)
+                    print("[OK]: MQTT -- FAN 1:ON, FAN 2:ON")
+                except Exception as e:
+                    print("[ERROR]: MQTT -- FAN 1:ON, FAN 2:ON")
         else:
             # Too hot - maximum cooling
             io.fan_1(1)
             io.fan_2(1)
             print("[CONTROL]: FAN 1:ON, FAN 2:ON")
-            try:
-                client_mqtt.publish('worg/status/fan_1', f'{{"Fan 01": 1}}', retain=True, qos=1)
-                client_mqtt.publish('worg/status/fan_2', f'{{"Fan 02": 1}}', retain=True, qos=1)
-                print("[OK]: MQTT -- FAN 1:ON, FAN 2:ON")
-            except Exception as e:
-                print("[ERROR]: MQTT -- FAN 1:ON, FAN 2:ON")
-                pass
+            if client_mqtt is not None:
+                try:
+                    client_mqtt.publish('worg/status/fan_1', f'{{"Fan 01": 1}}', retain=True, qos=1)
+                    client_mqtt.publish('worg/status/fan_2', f'{{"Fan 02": 1}}', retain=True, qos=1)
+                    print("[OK]: MQTT -- FAN 1:ON, FAN 2:ON")
+                except Exception as e:
+                    print("[ERROR]: MQTT -- FAN 1:ON, FAN 2:ON")
 
         states = read_data()
         print(f"[STATUS]: Plant phase: {states[0]}")
@@ -302,90 +327,95 @@ while True:
             io.deshumidifier(1)
             io.humidifier(0)
             print("[CONTROL]: HUM:OFF, DESHUM:ON")
-            try:
-                client_mqtt.publish('worg/status/deshumidifier', f'{{"Deshumidifier": 1}}', retain=True, qos=1)
-                client_mqtt.publish('worg/status/humidifier', f'{{"Humidifier": 0}}',retain=True, qos=1)
-                print("[OK]: MQTT -- HUM:OFF, DESHUM:ON")
-            except Exception as e:
-                pass
-                print("[ERROR]: MQTT -- HUM:OFF, DESHUM:ON")
+            if client_mqtt is not None:
+                try:
+                    client_mqtt.publish('worg/status/deshumidifier', f'{{"Deshumidifier": 1}}', retain=True, qos=1)
+                    client_mqtt.publish('worg/status/humidifier', f'{{"Humidifier": 0}}', retain=True, qos=1)
+                    print("[OK]: MQTT -- HUM:OFF, DESHUM:ON")
+                except Exception as e:
+                    print("[ERROR]: MQTT -- HUM:OFF, DESHUM:ON")
         elif vpd_min <= io.vpd() < vpd_max:
             io.deshumidifier(0)
             io.humidifier(0)
             print("[CONTROL]: HUM:OFF, DESHUM:OFF")
-            try:
-                client_mqtt.publish('worg/status/deshumidifier', f'{{"Deshumidifier": 0}}', retain=True, qos=1)
-                client_mqtt.publish('worg/status/humidifier', f'{{"Humidifier": 0}}', retain=True, qos=1)
-                print("[OK]: MQTT -- HUM:OFF, DESHUM:OFF")
-            except Exception as e:
-                pass
-                print("[ERROR]: MQTT -- HUM:OFF, DESHUM:ON")
+            if client_mqtt is not None:
+                try:
+                    client_mqtt.publish('worg/status/deshumidifier', f'{{"Deshumidifier": 0}}', retain=True, qos=1)
+                    client_mqtt.publish('worg/status/humidifier', f'{{"Humidifier": 0}}', retain=True, qos=1)
+                    print("[OK]: MQTT -- HUM:OFF, DESHUM:OFF")
+                except Exception as e:
+                    print("[ERROR]: MQTT -- HUM:OFF, DESHUM:ON")
         else:
             io.deshumidifier(0)
             io.humidifier(1)
             print("[CONTROL]: HUM:ON, DESHUM:OFF")
-            try:
-                client_mqtt.publish('worg/status/deshumidifier', f'{{"Deshumidifier": 0}}', retain=True, qos=1)
-                client_mqtt.publish('worg/status/humidifier', f'{{"Humidifier": 1}}', retain=True, qos=1)
-                print("[OK]: MQTT -- HUM:ON, DESHUM:OFF")
-            except Exception as e:
-                pass
-                print("[ERROR]: MQTT -- HUM:ON, DESHUM:ON")
+            if client_mqtt is not None:
+                try:
+                    client_mqtt.publish('worg/status/deshumidifier', f'{{"Deshumidifier": 0}}', retain=True, qos=1)
+                    client_mqtt.publish('worg/status/humidifier', f'{{"Humidifier": 1}}', retain=True, qos=1)
+                    print("[OK]: MQTT -- HUM:ON, DESHUM:OFF")
+                except Exception as e:
+                    print("[ERROR]: MQTT -- HUM:ON, DESHUM:ON")
 
         # Light control
         HOUR = ds.hour()
         if hour_min <= HOUR < hour_max:
             io.lighting(0)
             print("[CONTROL]: Lightning: OFF")
-            try:
-                client_mqtt.publish('worg/status/lighting', f'{{"Lighting": 0}}',retain=True, qos=1)
-                print("[OK]: MQTT -- Lightning: OFF")
-            except Exception as e:
-                pass
-                print("[ERROR]: MQTT -- Lightning: OFF")
+            if client_mqtt is not None:
+                try:
+                    client_mqtt.publish('worg/status/lighting', f'{{"Lighting": 0}}', retain=True, qos=1)
+                    print("[OK]: MQTT -- Lightning: OFF")
+                except Exception as e:
+                    print("[ERROR]: MQTT -- Lightning: OFF")
         else:
             io.lighting(1)
             print("[CONTROL]: Lightning: ON")
-            try:
-                client_mqtt.publish('worg/status/lighting', f'{{"Lighting": 1}}',retain=True, qos=1)
-                print("[OK]: MQTT -- Lightning: ON")
-            except Exception as e:
-                pass
-                print("[ERROR]: MQTT -- Lightning: ON")
+            if client_mqtt is not None:
+                try:
+                    client_mqtt.publish('worg/status/lighting', f'{{"Lighting": 1}}', retain=True, qos=1)
+                    print("[OK]: MQTT -- Lightning: ON")
+                except Exception as e:
+                    print("[ERROR]: MQTT -- Lightning: ON")
 
-        #CONTROLLING PLANTS WATERING
+        # CONTROLLING PLANTS WATERING
         states = read_data()
         water_plant(io.soil_1(), int(states[0]), io.water_pump_1, "Plant 1")
-        try:
-            client_mqtt.publish('worg/status/water_pump1', f'{{"Water Pump 01": {"1" if mcp.pin(3) else "0"}}}',retain=True, qos=1)
-            print("[OK]: MQTT -- Water Pump 01: ON")
-        except Exception as e:
-            pass
-            print("[ERROR]: MQTT -- Water Pump 01: ON")
+        if client_mqtt is not None:
+            try:
+                client_mqtt.publish('worg/status/water_pump1', f'{{"Water Pump 01": {"1" if mcp.pin(3) else "0"}}}',
+                                    retain=True, qos=1)
+                print("[OK]: MQTT -- Water Pump 01: ON")
+            except Exception as e:
+                print("[ERROR]: MQTT -- Water Pump 01: ON")
         water_plant(io.soil_2(), int(states[0]), io.water_pump_2, "Plant 2")
-        try:
-            client_mqtt.publish('worg/status/water_pump2', f'{{"Water Pump 02": {"1" if mcp.pin(2) else "0"}}}',retain=True, qos=1)
-            print("[OK]: MQTT -- Water Pump 02: ON")
-        except Exception as e:
-            pass
-            print("[ERROR]: MQTT -- Water Pump 02: ON")
+        if client_mqtt is not None:
+            try:
+                client_mqtt.publish('worg/status/water_pump2', f'{{"Water Pump 02": {"1" if mcp.pin(2) else "0"}}}',
+                                    retain=True, qos=1)
+                print("[OK]: MQTT -- Water Pump 02: ON")
+            except Exception as e:
+                print("[ERROR]: MQTT -- Water Pump 02: ON")
         water_plant(io.soil_3(), int(states[0]), io.water_pump_3, "Plant 3")
-        try:
-            client_mqtt.publish('worg/status/water_pump3', f'{{"Water Pump 03": {"1" if mcp.pin(1) else "0"}}}',retain=True, qos=1)
-            print("[OK]: MQTT -- Water Pump 03: ON")
-        except Exception as e:
-            pass
-            print("[ERROR]: MQTT -- Water Pump 03: ON")
+        if client_mqtt is not None:
+            try:
+                client_mqtt.publish('worg/status/water_pump3', f'{{"Water Pump 03": {"1" if mcp.pin(1) else "0"}}}',
+                                    retain=True, qos=1)
+                print("[OK]: MQTT -- Water Pump 03: ON")
+            except Exception as e:
+                print("[ERROR]: MQTT -- Water Pump 03: ON")
 
         water_plant(io.soil_4(), int(states[0]), io.water_pump_4, "Plant 4")
-        try:
-            client_mqtt.publish('worg/status/water_pump4', f'{{"Water Pump 04": {"1" if mcp.pin(0) else "0"}}}',retain=True, qos=1)
-            print("[OK]: MQTT -- Water Pump 04: ON")
-        except Exception as e:
-            pass
-            print("[ERROR]: MQTT -- Water Pump 04: ON")
+        if client_mqtt is not None:
+            try:
+                client_mqtt.publish('worg/status/water_pump4', f'{{"Water Pump 04": {"1" if mcp.pin(0) else "0"}}}',
+                                    retain=True, qos=1)
+                print("[OK]: MQTT -- Water Pump 04: ON")
+            except Exception as e:
+                print("[ERROR]: MQTT -- Water Pump 04: ON")
 
-        print("Leitura media: ", sensor_soil.AVERAGE_PLANT1, sensor_soil.AVERAGE_PLANT2, sensor_soil.AVERAGE_PLANT3, sensor_soil.AVERAGE_PLANT4)
+        print("Soil: ", sensor_soil.AVERAGE_PLANT1, sensor_soil.AVERAGE_PLANT2, sensor_soil.AVERAGE_PLANT3,
+              sensor_soil.AVERAGE_PLANT4)
 
     except Exception as e:
         pass
