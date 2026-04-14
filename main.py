@@ -359,6 +359,7 @@ while True:
 
         # Light control
         HOUR = ds.hour()
+        print(f"[STATUS]: Hour: {HOUR}")
         if hour_min <= HOUR < hour_max:
             io.lighting(0)
             print("[CONTROL]: Lightning: OFF")
