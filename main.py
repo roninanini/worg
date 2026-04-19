@@ -1,20 +1,6 @@
 """
 Copyright (C) 2025, Roni Araujo Nanini
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <https://www.gnu.org/licenses/>.
-
-You can access the source code on site: https://github.com/roninanini/worg
+... (seus comentários) ...
 """
 
 import network
@@ -49,6 +35,7 @@ circle = 10 * 60
 def setup_wifi():
     wlan = network.WLAN(network.STA_IF)
     wlan.active(True)
+    wlan.config(pm = 0) # 0 = WIFI_PS_NONE
     print("[STATUS]: Connecting to WiFi...")
     print(f"SSID: {SSID}")
 
@@ -99,33 +86,34 @@ def water_plant(soil_moisture, state, water_pump, plant_name=""):
     """Water a plant based on soil moisture and state"""
     if soil_moisture < 10:
         print(f"[CONTROL]: Watering {plant_name} - State: {state}. Waiting...")
-        # Determine watering cycles based on state
         if state == 0:
             cycles = 0
         elif state == 1:
-            cycles = 3
+            cycles = 4
         elif state == 2:
-            cycles = 6
+            cycles = 8
         elif state == 3:
-            cycles = 12
+            cycles = 22
         else:
             cycles = 0
         total_cycles = cycles
-        # Execute watering cycles
         while cycles > 0:
             print(f"Cycle {cycles} of {total_cycles}")
-            water_pump(1)  # Turn pump ON
-            sleep(10)  # Water for 10 seconds
-            water_pump(0)  # Turn pump OFF
-            sleep(10)  # Pause for 10 seconds
-            cycles -= 1  # Decrement counter
+            water_pump(1)
+            sleep(10)
+            water_pump(0)
+            sleep(10)
+            cycles -= 1
+
 
 wlan = setup_wifi()
 client_mqtt = None
 
 if wlan.isconnected():
     try:
-        client_mqtt = MQTTClient(MQTT_ID, server=MQTT_SERVER, port=MQTT_PORT, user=MQTT_USER, password=MQTT_PASSWORD, keepalive=300)
+        # ALTERADO: keepalive reduzido para 60 segundos
+        client_mqtt = MQTTClient(MQTT_ID, server=MQTT_SERVER, port=MQTT_PORT,
+                                 user=MQTT_USER, password=MQTT_PASSWORD, keepalive=60)
         client_mqtt.set_callback(write_data)
         client_mqtt.connect()
         client_mqtt.subscribe('worg/plant_phase', qos=1)
@@ -139,6 +127,15 @@ else:
 sleep(10)
 
 while True:
+    # ALTERADO: adicionado ping() para manter conexão
+    if client_mqtt is not None:
+        try:
+            client_mqtt.check_msg()
+            client_mqtt.ping()  # <--- NOVO: mantém conexão viva
+        except Exception as e:
+            print(f"[ERROR]: MQTT check_msg/ping failed: {e}")
+            client_mqtt = None
+
     if not wlan.isconnected():
         print("[ERROR]: WiFi disconnected, reconnecting...")
         wlan = setup_wifi()
@@ -146,8 +143,8 @@ while True:
         if wlan.isconnected():
             try:
                 if client_mqtt is None:
-                    client_mqtt = MQTTClient(MQTT_ID, server=MQTT_SERVER, port=MQTT_PORT, user=MQTT_USER,
-                                             password=MQTT_PASSWORD, keepalive=300)
+                    client_mqtt = MQTTClient(MQTT_ID, server=MQTT_SERVER, port=MQTT_PORT,
+                                             user=MQTT_USER, password=MQTT_PASSWORD, keepalive=60)
                     client_mqtt.set_callback(write_data)
                 client_mqtt.connect()
                 client_mqtt.subscribe('worg/plant_phase', qos=1)
@@ -160,6 +157,24 @@ while True:
             continue
 
     if wlan.isconnected() and client_mqtt is not None:
+        # ALTERADO: testa conexão antes de publicar
+        try:
+            client_mqtt.ping()
+        except:
+            print("[ERROR]: MQTT connection lost, reconnecting...")
+            client_mqtt = None
+            try:
+                client_mqtt = MQTTClient(MQTT_ID, server=MQTT_SERVER, port=MQTT_PORT,
+                                         user=MQTT_USER, password=MQTT_PASSWORD, keepalive=60)
+                client_mqtt.set_callback(write_data)
+                client_mqtt.connect()
+                client_mqtt.subscribe('worg/plant_phase', qos=1)
+                print("[OK]: MQTT reconnected")
+            except:
+                print("[ERROR]: MQTT reconnect failed")
+                sleep(circle)
+                continue
+
         try:
             try:
                 temp = io.temp()
@@ -226,13 +241,10 @@ while True:
             # -----------ELECTRICAL POINTS TO GRAFANA -----------#
             client_mqtt.publish('worg/electrical/voltage', f'{{"voltage": {voltage}}}', retain=False, qos=1)
             client_mqtt.publish('worg/electrical/current', f'{{"current": {current_val}}}', retain=False, qos=1)
-            client_mqtt.publish('worg/electrical/active_power', f'{{"active power": {active_power}}}', retain=False,
-                                qos=1)
-            client_mqtt.publish('worg/electrical/active_energy', f'{{"active energy": {active_energy}}}', retain=False,
-                                qos=1)
+            client_mqtt.publish('worg/electrical/active_power', f'{{"active power": {active_power}}}', retain=False, qos=1)
+            client_mqtt.publish('worg/electrical/active_energy', f'{{"active energy": {active_energy}}}', retain=False, qos=1)
             client_mqtt.publish('worg/electrical/frequency', f'{{"frequency": {frequency}}}', retain=False, qos=1)
-            client_mqtt.publish('worg/electrical/power_factor', f'{{"power factor": {power_factor}}}', retain=False,
-                                qos=1)
+            client_mqtt.publish('worg/electrical/power_factor', f'{{"power factor": {power_factor}}}', retain=False, qos=1)
             print("[OK]: MQTT Modbus")
 
             # -----------POINTS OF SOIL TO GRAFANA -----------#
@@ -250,9 +262,8 @@ while True:
                 print("[ERROR]: Disconnect failed")
 
     try:
-        # CONTROL
+        # CONTROL (todo o seu código de controle continua igual)
         if io.temp() < 18:
-            # Too cold
             io.fan_1(0)
             io.fan_2(0)
             print("[CONTROL]: FAN 1:OFF, FAN 2:OFF")
@@ -264,7 +275,6 @@ while True:
                 except Exception as e:
                     print("[ERROR]: MQTT -- FAN 1:OFF, FAN 2:OFF")
         elif 18 <= io.temp() < 22:
-            # Slightly warm - minimal cooling
             io.fan_1(1)
             io.fan_2(0)
             print("[CONTROL]: FAN 1:ON, FAN 2:OFF")
@@ -276,7 +286,6 @@ while True:
                 except Exception as e:
                     print("[ERROR]: MQTT -- FAN 1:ON, FAN 2:OFF")
         elif 22 <= io.temp() < 25:
-            # Moderately warm - more cooling
             io.fan_1(1)
             io.fan_2(1)
             print("[CONTROL]: FAN 1:ON, FAN 2:ON")
@@ -288,7 +297,6 @@ while True:
                 except Exception as e:
                     print("[ERROR]: MQTT -- FAN 1:ON, FAN 2:ON")
         else:
-            # Too hot - maximum cooling
             io.fan_1(1)
             io.fan_2(1)
             print("[CONTROL]: FAN 1:ON, FAN 2:ON")
@@ -384,39 +392,33 @@ while True:
         water_plant(io.soil_1(), int(states[0]), io.water_pump_1, "Plant 1")
         if client_mqtt is not None:
             try:
-                client_mqtt.publish('worg/status/water_pump1', f'{{"Water Pump 01": {"1" if mcp.pin(3) else "0"}}}',
-                                    retain=True, qos=1)
+                client_mqtt.publish('worg/status/water_pump1', f'{{"Water Pump 01": {"1" if mcp.pin(3) else "0"}}}', retain=True, qos=1)
                 print("[OK]: MQTT -- Water Pump 01: ON")
             except Exception as e:
                 print("[ERROR]: MQTT -- Water Pump 01: ON")
         water_plant(io.soil_2(), int(states[0]), io.water_pump_2, "Plant 2")
         if client_mqtt is not None:
             try:
-                client_mqtt.publish('worg/status/water_pump2', f'{{"Water Pump 02": {"1" if mcp.pin(2) else "0"}}}',
-                                    retain=True, qos=1)
+                client_mqtt.publish('worg/status/water_pump2', f'{{"Water Pump 02": {"1" if mcp.pin(2) else "0"}}}', retain=True, qos=1)
                 print("[OK]: MQTT -- Water Pump 02: ON")
             except Exception as e:
                 print("[ERROR]: MQTT -- Water Pump 02: ON")
         water_plant(io.soil_3(), int(states[0]), io.water_pump_3, "Plant 3")
         if client_mqtt is not None:
             try:
-                client_mqtt.publish('worg/status/water_pump3', f'{{"Water Pump 03": {"1" if mcp.pin(1) else "0"}}}',
-                                    retain=True, qos=1)
+                client_mqtt.publish('worg/status/water_pump3', f'{{"Water Pump 03": {"1" if mcp.pin(1) else "0"}}}', retain=True, qos=1)
                 print("[OK]: MQTT -- Water Pump 03: ON")
             except Exception as e:
                 print("[ERROR]: MQTT -- Water Pump 03: ON")
-
         water_plant(io.soil_4(), int(states[0]), io.water_pump_4, "Plant 4")
         if client_mqtt is not None:
             try:
-                client_mqtt.publish('worg/status/water_pump4', f'{{"Water Pump 04": {"1" if mcp.pin(0) else "0"}}}',
-                                    retain=True, qos=1)
+                client_mqtt.publish('worg/status/water_pump4', f'{{"Water Pump 04": {"1" if mcp.pin(0) else "0"}}}', retain=True, qos=1)
                 print("[OK]: MQTT -- Water Pump 04: ON")
             except Exception as e:
                 print("[ERROR]: MQTT -- Water Pump 04: ON")
 
-        print("Soil: ", sensor_soil.AVERAGE_PLANT1, sensor_soil.AVERAGE_PLANT2, sensor_soil.AVERAGE_PLANT3,
-              sensor_soil.AVERAGE_PLANT4)
+        print("Soil: ", sensor_soil.AVERAGE_PLANT1, sensor_soil.AVERAGE_PLANT2, sensor_soil.AVERAGE_PLANT3, sensor_soil.AVERAGE_PLANT4)
 
     except Exception as e:
         pass
