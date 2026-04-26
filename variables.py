@@ -21,7 +21,6 @@ You can access the source code on site: https://github.com/roninanini/worg
 from machine import I2C, Pin, UART
 import Libs.mcp23017
 import Libs.bme280
-from Libs.soil import sensor_soil
 from Libs.pzem import PZEM
 import math
 from Libs.ds3231 import DS3231
@@ -119,14 +118,6 @@ class IO:
         return self.deshumidifier_state
 
 #--------------- INPUTS ---------------#
-    def soil_1(self):
-        return sensor_soil.AVERAGE_PLANT1
-    def soil_2(self):
-        return sensor_soil.AVERAGE_PLANT2
-    def soil_3(self):
-        return sensor_soil.AVERAGE_PLANT3
-    def soil_4(self):
-        return sensor_soil.AVERAGE_PLANT4
     def temp(self):
         read_temp, _, _ = bme.read_compensated_data()
         return read_temp
