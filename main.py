@@ -127,36 +127,52 @@ def atualizar_parametros_globais():
 
 # -----------FUNCOES PARA SALVAR E LER DADOS DAS PLANTAS (REGA)-----------#
 def salvar_dados_rega():
-    """Salva os dados de phase e dias de cada planta no arquivo"""
+    """Salva os dados de phase e dias de cada planta, alem do ultimo_dia e rega_executada_hoje"""
     try:
         with open('plantas_rega.csv', 'w') as f:
+            # Salva dados das plantas
             for planta_id in range(1, 5):
                 phase = plantas_rega[planta_id]["phase"]
                 dias = plantas_rega[planta_id]["dias"]
                 f.write(f"{planta_id},{phase},{dias}\n")
-        print("[OK]: Dados de rega salvos")
+            # Salva informacoes de controle na ultima linha
+            f.write(f"CONTROL,{ultimo_dia if ultimo_dia is not None else 0},{1 if rega_executada_hoje else 0}\n")
+        print("[OK]: Dados de rega e controle salvos")
     except Exception as e:
         print(f"[ERROR]: Falha ao salvar dados de rega: {e}")
 
 def carregar_dados_rega():
-    """Carrega os dados de phase e dias de cada planta do arquivo"""
-    global plantas_rega
+    """Carrega os dados de phase e dias de cada planta, alem do ultimo_dia e rega_executada_hoje"""
+    global plantas_rega, ultimo_dia, rega_executada_hoje
     try:
         with open('plantas_rega.csv', 'r') as f:
-            for linha in f:
+            linhas = f.readlines()
+            for linha in linhas:
                 linha = linha.strip()
                 if linha:
                     partes = linha.split(',')
                     if len(partes) == 3:
-                        planta_id = int(partes[0])
-                        phase = int(partes[1])
-                        dias = int(partes[2])
-                        if planta_id in plantas_rega:
-                            plantas_rega[planta_id]["phase"] = phase
-                            plantas_rega[planta_id]["dias"] = dias
-        print("[OK]: Dados de rega carregados")
+                        if partes[0] == "CONTROL":
+                            # Linha de controle
+                            ultimo_dia_valor = int(partes[1])
+                            rega_executada_valor = int(partes[2])
+                            if ultimo_dia_valor != 0:
+                                ultimo_dia = ultimo_dia_valor
+                            rega_executada_hoje = (rega_executada_valor == 1)
+                        else:
+                            # Dados das plantas
+                            planta_id = int(partes[0])
+                            phase = int(partes[1])
+                            dias = int(partes[2])
+                            if planta_id in plantas_rega:
+                                plantas_rega[planta_id]["phase"] = phase
+                                plantas_rega[planta_id]["dias"] = dias
+        print("[OK]: Dados de rega e controle carregados")
+        if ultimo_dia is not None:
+            print(f"[STATUS]: ultimo_dia recuperado: {ultimo_dia}")
+        print(f"[STATUS]: rega_executada_hoje recuperado: {rega_executada_hoje}")
     except Exception as e:
-        print(f"[STATUS]: Nenhum dado de rega salvo anteriormente")
+        print(f"[STATUS]: Nenhum dado de rega salvo anteriormente, usando valores padrao")
 
 def salvar_fase_global():
     """Salva a fase global no arquivo"""
@@ -305,6 +321,7 @@ def verificar_e_regar_plantas():
             sleep(30)
 
         rega_executada_hoje = True
+        salvar_dados_rega()  # Salva o estado de rega_executada_hoje
         print(f"[CONTROL]: Ciclo de rega finalizado")
     else:
         print(f"[STATUS]: Nenhuma planta precisa de rega no momento")
@@ -477,15 +494,17 @@ def mqtt_ciclo():
         client.publish('worg/electrical/power_factor', f'{{"power factor": {power_factor}}}', retain=True, qos=1)
         print("[OK]: MQTT electrical published")
 
-        client.publish('worg/status/fan_1', f'{{"Fan 01": {io.fan_1}}}', retain=True, qos=1)
-        client.publish('worg/status/fan_2', f'{{"Fan 02": {io.fan_2}}}', retain=True, qos=1)
-        client.publish('worg/status/deshumidifier', f'{{"Deshumidifier": {io.deshumidifier}}}', retain=True, qos=1)
-        client.publish('worg/status/humidifier', f'{{"Humidifier": {io.humidifier}}}', retain=True, qos=1)
-        client.publish('worg/status/lighting', f'{{"Lighting": {io.lighting}}}', retain=True, qos=1)
-        client.publish('worg/status/water_pump1', f'{{"Water Pump 01": {io.water_pump_1}}}', retain=True, qos=1)
-        client.publish('worg/status/water_pump2', f'{{"Water Pump 02": {io.water_pump_2}}}', retain=True, qos=1)
-        client.publish('worg/status/water_pump3', f'{{"Water Pump 03": {io.water_pump_3}}}', retain=True, qos=1)
-        client.publish('worg/status/water_pump4', f'{{"Water Pump 04": {io.water_pump_4}}}', retain=True, qos=1)
+        # Publica status dos componentes lendo diretamente dos pinos do MCP23017
+        # Mantem os topicos originais worg/status/
+        client.publish('worg/status/water_pump1', "1" if mcp.pin(3) else "0", retain=True, qos=1)
+        client.publish('worg/status/water_pump2', "1" if mcp.pin(2) else "0", retain=True, qos=1)
+        client.publish('worg/status/water_pump3', "1" if mcp.pin(1) else "0", retain=True, qos=1)
+        client.publish('worg/status/water_pump4', "1" if mcp.pin(0) else "0", retain=True, qos=1)
+        client.publish('worg/status/lighting', "1" if mcp.pin(13) else "0", retain=True, qos=1)
+        client.publish('worg/status/fan_1', "1" if mcp.pin(15) else "0", retain=True, qos=1)
+        client.publish('worg/status/fan_2', "1" if mcp.pin(14) else "0", retain=True, qos=1)
+        client.publish('worg/status/humidifier', "1" if mcp.pin(12) else "0", retain=True, qos=1)
+        client.publish('worg/status/deshumidifier', "1" if mcp.pin(11) else "0", retain=True, qos=1)
         print("[OK]: MQTT control status published")
 
         # Status das plantas
@@ -587,12 +606,14 @@ while True:
 
         if ultimo_dia is None:
             ultimo_dia = dia_atual
+            salvar_dados_rega()  # Salva imediatamente o ultimo_dia
             print(f"[STATUS]: Dia inicial registrado: {dia_atual}")
         elif dia_atual != ultimo_dia:
             print(f"[STATUS]: Novo dia detectado! {ultimo_dia} -> {dia_atual}")
             atualizar_dias_plantas()
             rega_executada_hoje = False
             ultimo_dia = dia_atual
+            salvar_dados_rega()  # Salva apos mudanca de dia
 
         # Executar rega (se possivel)
         verificar_e_regar_plantas()
