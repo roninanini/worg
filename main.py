@@ -602,7 +602,10 @@ while True:
 
         # ========== CONTROLE DE REGA (dias acumulados) ==========
         # Usando o dia do mes para detectar mudanca de dia
-        dia_atual = ds.day()
+        try:
+            dia_atual = ds.mday()
+        except Exception as e:
+            print(f"[ERROR]: get day: {e}")
 
         if ultimo_dia is None:
             ultimo_dia = dia_atual
