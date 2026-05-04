@@ -627,3 +627,5 @@ while True:
     # Aguarda proximo ciclo
     print(f"[STATUS]: Aguardando {circle} segundos")
     sleep(circle)
+
+
