@@ -15,26 +15,33 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 You can access the source code on site: https://github.com/roninanini/worg
+v0.0
 """
 
 # ┌─────────────────────────────────────────────────────────────┐
-# │                    COMANDOS MQTT                            │
+# │                    MQTT COMMANDS                            │
 # ├─────────────────────────────────────────────────────────────┤
 # │                                                             │
-# │  GLOBAL (Iluminação + VPD)                                  │
+# │  GLOBAL (Lighting + VPD)                                    │
 # │  └── plant_phase = 0,1,2,3                                  │
 # │                                                             │
-# │  REGA (quantidade de água)                                  │
+# │  WATERING AMOUNT (quantity of water)                        │
 # │  ├── worg/watering/plant1 = 0,1,2,3                         │
 # │  ├── worg/watering/plant2 = 0,1,2,3                         │
 # │  ├── worg/watering/plant3 = 0,1,2,3                         │
 # │  └── worg/watering/plant4 = 0,1,2,3                         │
 # │                                                             │
-# │  OVERRIDE (forçar dias acumulados)                          │
-# │  ├── worg/days/plant1 = 0,1,2,3                             │
-# │  ├── worg/days/plant2 = 0,1,2,3                             │
-# │  ├── worg/days/plant3 = 0,1,2,3                             │
-# │  └── worg/days/plant4 = 0,1,2,3                             │
+# │  WATERING TRIGGER (user sends 1, system resets to 0)        │
+# │  ├── worg/watering/trigger/plant1 = 1 (start) / 0 (done)    │
+# │  ├── worg/watering/trigger/plant2 = 1 (start) / 0 (done)    │
+# │  ├── worg/watering/trigger/plant3 = 1 (start) / 0 (done)    │
+# │  └── worg/watering/trigger/plant4 = 1 (start) / 0 (done)    │
+# │                                                             │
+# │  WATERING ERROR (published by system)                       │
+# │  ├── worg/watering/error/plant1 = {"error": 1}              │
+# │  ├── worg/watering/error/plant2 = {"error": 1}              │
+# │  ├── worg/watering/error/plant3 = {"error": 1}              │
+# │  └── worg/watering/error/plant4 = {"error": 1}              │
 # │                                                             │
 # └─────────────────────────────────────────────────────────────┘
 
@@ -47,9 +54,8 @@ from Libs.ds3231 import DS3231
 from machine import I2C, Pin, ADC
 import Libs.mcp23017
 import passwords
-import webrepl
 
-# -----------ATRIBUTES-----------#
+# -----------ATTRIBUTES-----------#
 io = IO()
 
 SSID = passwords.SSID
@@ -65,38 +71,35 @@ mcp = Libs.mcp23017.MCP23017(i2c, 0x27)
 ds = DS3231(i2c)
 circle = 10 * 60
 
-# -----------VARIAVEIS GLOBAIS (Iluminacao e VPD)-----------#
-# Controlado pelo topico MQTT 'plant_phase' (valor unico)
+# -----------GLOBAL VARIABLES (Lighting and VPD)-----------#
 plant_global_phase = 0
 
-# Variaveis que serao atualizadas conforme a fase global
 vpd_min = 0.8
 vpd_max = 1.2
 hour_min = 10
 hour_max = 16
 
-# -----------VARIAVEIS INDIVIDUAIS (Rega de cada planta)-----------#
-# Cada planta tem:
-#   phase: quantidade de agua (0,1,2,3) - controlado por MQTT individual (worg/watering/plantX)
-#   dias: dias acumulados (0,1,2,3) - automatico ou override manual (worg/days/plantX)
-plantas_rega = {
-    1: {"phase": 0, "dias": 0},
-    2: {"phase": 0, "dias": 0},
-    3: {"phase": 0, "dias": 0},
-    4: {"phase": 0, "dias": 0},
+# -----------INDIVIDUAL VARIABLES (Watering per plant)-----------#
+# Each plant has:
+#   phase: water amount (0,1,2,3) - MQTT worg/watering/plantX
+#   command: pending watering command (1 = pending, 0 = none)
+#   executed: already watered flag (1 = already watered, 0 = not watered)
+plants_watering = {
+    1: {"phase": 0, "command": 0, "executed": 0},
+    2: {"phase": 0, "command": 0, "executed": 0},
+    3: {"phase": 0, "command": 0, "executed": 0},
+    4: {"phase": 0, "command": 0, "executed": 0},
 }
 
-# Controle para nao regar multiplas vezes no mesmo dia
-rega_executada_hoje = False
-ultimo_dia = None  # Armazena o ultimo dia registrado (1-31)
+# Flag to avoid watering multiple plants at the same time
+is_watering = False
 
-# Variavel para armazenar comandos recebidos durante o ciclo MQTT
-comandos_recebidos = []
+# Variable to store commands received during the MQTT cycle
+received_commands = []
 
 
-# -----------FUNCOES PARA ATUALIZAR PARAMETROS GLOBAIS-----------#
-def atualizar_parametros_globais():
-    """Atualiza VPD e horarios baseado na fase global"""
+# -----------FUNCTIONS TO UPDATE GLOBAL PARAMETERS-----------#
+def update_global_parameters():
     global vpd_min, vpd_max, hour_min, hour_max
 
     if plant_global_phase == 1:
@@ -114,220 +117,204 @@ def atualizar_parametros_globais():
         vpd_max = 1.3
         hour_min = 7
         hour_max = 19
-    else:  # phase 0
+    else:
         vpd_min = 0.8
         vpd_max = 1.2
         hour_min = 10
         hour_max = 16
 
-    print(f"[STATUS]: Parametros atualizados - Phase: {plant_global_phase}")
-    print(f"[STATUS]: Iluminacao: {hour_min}h as {hour_max}h")
-    print(f"[STATUS]: VPD: {vpd_min} a {vpd_max}")
+    print(f"[STATUS]: Parameters updated - Phase: {plant_global_phase}")
+    print(f"[STATUS]: Lighting: {hour_min}h to {hour_max}h")
+    print(f"[STATUS]: VPD: {vpd_min} to {vpd_max}")
 
 
-# -----------FUNCOES PARA SALVAR E LER DADOS DAS PLANTAS (REGA)-----------#
-def salvar_dados_rega():
-    """Salva os dados de phase e dias de cada planta, alem do ultimo_dia e rega_executada_hoje"""
+# -----------FUNCTIONS TO SAVE AND LOAD PLANT WATERING DATA-----------#
+def save_watering_data():
     try:
-        with open('plantas_rega.csv', 'w') as f:
-            # Salva dados das plantas
-            for planta_id in range(1, 5):
-                phase = plantas_rega[planta_id]["phase"]
-                dias = plantas_rega[planta_id]["dias"]
-                f.write(f"{planta_id},{phase},{dias}\n")
-            # Salva informacoes de controle na ultima linha
-            f.write(f"CONTROL,{ultimo_dia if ultimo_dia is not None else 0},{1 if rega_executada_hoje else 0}\n")
-        print("[OK]: Dados de rega e controle salvos")
+        with open('plants_watering.csv', 'w') as f:
+            for plant_id in range(1, 5):
+                phase = plants_watering[plant_id]["phase"]
+                command = plants_watering[plant_id]["command"]
+                executed = plants_watering[plant_id]["executed"]
+                f.write(f"{plant_id},{phase},{command},{executed}\n")
+        print("[OK]: Watering data saved")
     except Exception as e:
-        print(f"[ERROR]: Falha ao salvar dados de rega: {e}")
+        print(f"[ERROR]: Failed to save watering data: {e}")
 
-def carregar_dados_rega():
-    """Carrega os dados de phase e dias de cada planta, alem do ultimo_dia e rega_executada_hoje"""
-    global plantas_rega, ultimo_dia, rega_executada_hoje
+def load_watering_data():
+    global plants_watering
     try:
-        with open('plantas_rega.csv', 'r') as f:
-            linhas = f.readlines()
-            for linha in linhas:
-                linha = linha.strip()
-                if linha:
-                    partes = linha.split(',')
-                    if len(partes) == 3:
-                        if partes[0] == "CONTROL":
-                            # Linha de controle
-                            ultimo_dia_valor = int(partes[1])
-                            rega_executada_valor = int(partes[2])
-                            if ultimo_dia_valor != 0:
-                                ultimo_dia = ultimo_dia_valor
-                            rega_executada_hoje = (rega_executada_valor == 1)
-                        else:
-                            # Dados das plantas
-                            planta_id = int(partes[0])
-                            phase = int(partes[1])
-                            dias = int(partes[2])
-                            if planta_id in plantas_rega:
-                                plantas_rega[planta_id]["phase"] = phase
-                                plantas_rega[planta_id]["dias"] = dias
-        print("[OK]: Dados de rega e controle carregados")
-        if ultimo_dia is not None:
-            print(f"[STATUS]: ultimo_dia recuperado: {ultimo_dia}")
-        print(f"[STATUS]: rega_executada_hoje recuperado: {rega_executada_hoje}")
+        with open('plants_watering.csv', 'r') as f:
+            lines = f.readlines()
+            for line in lines:
+                line = line.strip()
+                if line:
+                    parts = line.split(',')
+                    if len(parts) == 4:
+                        plant_id = int(parts[0])
+                        phase = int(parts[1])
+                        command = int(parts[2])
+                        executed = int(parts[3])
+                        if plant_id in plants_watering:
+                            plants_watering[plant_id]["phase"] = phase
+                            plants_watering[plant_id]["command"] = command
+                            plants_watering[plant_id]["executed"] = executed
+        print("[OK]: Watering data loaded")
+        print(f"[DEBUG]: plants_watering loaded = {plants_watering}")
     except Exception as e:
-        print(f"[STATUS]: Nenhum dado de rega salvo anteriormente, usando valores padrao")
+        print(f"[STATUS]: No watering data previously saved, using default values")
 
-def salvar_fase_global():
-    """Salva a fase global no arquivo"""
+def save_global_phase():
     try:
-        with open('fase_global.csv', 'w') as f:
+        with open('global_phase.csv', 'w') as f:
             f.write(str(plant_global_phase))
-        print("[OK]: Fase global salva")
+        print("[OK]: Global phase saved")
     except Exception as e:
-        print(f"[ERROR]: Falha ao salvar fase global: {e}")
+        print(f"[ERROR]: Failed to save global phase: {e}")
 
-def carregar_fase_global():
-    """Carrega a fase global do arquivo"""
+def load_global_phase():
     global plant_global_phase
     try:
-        with open('fase_global.csv', 'r') as f:
+        with open('global_phase.csv', 'r') as f:
             plant_global_phase = int(f.read().strip())
             if plant_global_phase < 0 or plant_global_phase > 3:
                 plant_global_phase = 0
-        print(f"[OK]: Fase global carregada: {plant_global_phase}")
-        atualizar_parametros_globais()
+        print(f"[OK]: Global phase loaded: {plant_global_phase}")
+        update_global_parameters()
     except Exception as e:
-        print(f"[STATUS]: Nenhuma fase global salva, usando padrao (0)")
+        print(f"[STATUS]: No global phase saved, using default (0)")
 
 
-# -----------FUNCOES PARA CONTROLE DE REGA INDIVIDUAL-----------#
-def atualizar_dias_plantas():
-    """Adiciona 1 dia para cada planta que ainda nao atingiu o limite"""
-    for planta_id in range(1, 5):
-        if plantas_rega[planta_id]["dias"] < 3:
-            plantas_rega[planta_id]["dias"] += 1
-            print(f"[STATUS]: Planta {planta_id} - Dias acumulados: {plantas_rega[planta_id]['dias']}/3")
-    salvar_dados_rega()
+# -----------WATERING EXECUTION FUNCTIONS-----------#
+def reset_all_pumps():
+    """Desliga todas as bombas (protecao no boot)"""
+    io.water_pump_1(0)
+    io.water_pump_2(0)
+    io.water_pump_3(0)
+    io.water_pump_4(0)
+    print("[PROTECTION]: All pumps turned off")
 
-def resetar_dias_planta(planta_id):
-    """Reseta os dias acumulados de uma planta especifica (usado apos rega)"""
-    if planta_id in plantas_rega:
-        plantas_rega[planta_id]["dias"] = 0
-        print(f"[CONTROL]: Planta {planta_id} - Dias resetados para 0")
-        salvar_dados_rega()
+def publish_watering_error(plant_id):
+    """Publica mensagem de erro via MQTT"""
+    client = None
+    try:
+        if wlan.isconnected():
+            client = MQTTClient(MQTT_ID, server=MQTT_SERVER, port=MQTT_PORT,
+                               user=MQTT_USER, password=MQTT_PASSWORD, keepalive=60)
+            client.connect()
+            client.publish(f'worg/watering/error/plant{plant_id}', '{"error": 1}', retain=True, qos=1)
+            client.disconnect()
+            print(f"[MQTT]: Error published for plant {plant_id}")
+    except Exception as e:
+        print(f"[ERROR]: Failed to publish error for plant {plant_id}: {e}")
 
-def override_dias_planta(planta_id, novos_dias):
-    """Sobrescreve os dias acumulados de uma planta via MQTT"""
-    if planta_id in plantas_rega:
-        if 0 <= novos_dias <= 3:
-            plantas_rega[planta_id]["dias"] = novos_dias
-            print(f"[MQTT]: Planta {planta_id} - Dias sobrescritos para {novos_dias}")
-            salvar_dados_rega()
-            return True
-        else:
-            print(f"[ERROR]: Valor invalido para dias: {novos_dias}. Use 0-3")
-            return False
-    return False
+def publish_watering_status(plant_id, status):
+    """Publica o status da rega (0 = idle/finished, 1 = pending/running)"""
+    client = None
+    try:
+        if wlan.isconnected():
+            client = MQTTClient(MQTT_ID, server=MQTT_SERVER, port=MQTT_PORT,
+                               user=MQTT_USER, password=MQTT_PASSWORD, keepalive=60)
+            client.connect()
+            client.publish(f'worg/watering/trigger/plant{plant_id}', str(status), retain=True, qos=1)
+            client.disconnect()
+            print(f"[MQTT]: Status for plant {plant_id} published: {status}")
+    except Exception as e:
+        print(f"[ERROR]: Failed to publish status for plant {plant_id}: {e}")
 
-def pode_regar(planta_id):
-    """Verifica se a planta pode ser regada (dias acumulados >= 3)"""
-    return plantas_rega[planta_id]["dias"] >= 3
+def execute_watering_cycle(plant_id, cycles, water_pump):
+    """Executa os ciclos de rega para uma planta com protecao contra interrupcao"""
+    global is_watering
 
+    is_watering = True
+    error_occurred = False
 
-# -----------FUNCAO DE REGA-----------#
-def executar_rega(planta_id, cycles, water_pump, plant_name=""):
-    """Executa os ciclos de rega para uma planta"""
-    total_cycles = cycles
-    while cycles > 0:
-        print(f"[CONTROL]: Planta {planta_id} - Ciclo {cycles} de {total_cycles}")
-        water_pump(1)  # Turn pump ON
-        sleep(10)  # Water for 10 seconds
-        water_pump(0)  # Turn pump OFF
-        if cycles > 1:
-            sleep(10)  # Pause for 10 seconds between cycles
-        cycles -= 1
+    try:
+        total_cycles = cycles
+        while cycles > 0 and not error_occurred:
+            print(f"[CONTROL]: Plant {plant_id} - Cycle {cycles} of {total_cycles}")
+            water_pump(1)
 
-def regar_planta(planta_id, water_pump, plant_name=""):
-    """Rega a planta baseado na phase individual (quantidade de agua)"""
-    state = plantas_rega[planta_id]["phase"]
-    print(f"[CONTROL]: Regando {plant_name} - Fase de rega: {state}")
+            # Aguarda com verificacao de erro (simplificada)
+            for _ in range(10):
+                sleep(1)
 
-    # Determine watering cycles based on state
+            water_pump(0)
+            if cycles > 1:
+                for _ in range(10):
+                    sleep(1)
+            cycles -= 1
+
+        if not error_occurred:
+            print(f"[CONTROL]: Plant {plant_id} - Watering completed")
+
+    except Exception as e:
+        error_occurred = True
+        print(f"[ERROR]: Plant {plant_id} - Watering interrupted: {e}")
+        water_pump(0)  # Garante bomba desligada
+        publish_watering_error(plant_id)
+
+    finally:
+        is_watering = False
+        return not error_occurred
+
+def water_plant(plant_id):
+    """Rega a planta baseado na phase armazenada"""
+    state = plants_watering[plant_id]["phase"]
+    print(f"[CONTROL]: Watering plant {plant_id} - Amount: {state}")
+
     if state == 0:
         cycles = 0
-        print(f"[CONTROL]: Planta {planta_id} - Fase 0, sem rega necessaria")
     elif state == 1:
-        cycles = 4  # 400ml
-        print(f"[CONTROL]: Planta {planta_id} - Fase 1, aplicando 4 ciclos")
+        cycles = 4
     elif state == 2:
-        cycles = 8  # 800ml
-        print(f"[CONTROL]: Planta {planta_id} - Fase 2, aplicando 8 ciclos")
+        cycles = 8
     elif state == 3:
-        cycles = 22  # 2.2L
-        print(f"[CONTROL]: Planta {planta_id} - Fase 3, aplicando 22 ciclos")
+        cycles = 22
     else:
         cycles = 0
 
     if cycles > 0:
-        executar_rega(planta_id, cycles, water_pump, plant_name)
-        resetar_dias_planta(planta_id)
-        print(f"[CONTROL]: Planta {planta_id} - Rega concluida")
+        if plant_id == 1:
+            success = execute_watering_cycle(plant_id, cycles, io.water_pump_1)
+        elif plant_id == 2:
+            success = execute_watering_cycle(plant_id, cycles, io.water_pump_2)
+        elif plant_id == 3:
+            success = execute_watering_cycle(plant_id, cycles, io.water_pump_3)
+        elif plant_id == 4:
+            success = execute_watering_cycle(plant_id, cycles, io.water_pump_4)
+
+        if success:
+            plants_watering[plant_id]["command"] = 0
+            plants_watering[plant_id]["executed"] = 1
+            publish_watering_status(plant_id, 0)
+            save_watering_data()
+            print(f"[CONTROL]: Plant {plant_id} - Watering successful")
+        else:
+            print(f"[CONTROL]: Plant {plant_id} - Watering failed, error published")
     else:
-        print(f"[CONTROL]: Planta {planta_id} - Nenhum ciclo executado")
+        print(f"[CONTROL]: Plant {plant_id} - Phase 0, nothing to do")
+        plants_watering[plant_id]["command"] = 0
+        plants_watering[plant_id]["executed"] = 1
+        publish_watering_status(plant_id, 0)
+        save_watering_data()
 
-def verificar_e_regar_plantas():
-    """Verifica todas as plantas e realiza a rega se necessario (dias >= 3)"""
-    global rega_executada_hoje
+def check_pending_watering():
+    """Verifica e executa comandos de rega pendentes (sequencial)"""
+    global is_watering
 
-    HOUR = ds.hour()
-
-    # So executa rega quando as luzes estao apagadas (fora do horario de iluminacao)
-    if hour_min <= HOUR < hour_max:
-        # Dentro do horario de luz, nao pode regar
+    if is_watering:
         return
 
-    if rega_executada_hoje:
-        return  # Ja regou hoje, nao faz nada
-
-    print(f"[STATUS]: Verificando plantas para rega - Hora: {HOUR}")
-
-    # Lista de plantas para regar
-    plantas_para_regar = []
-    for planta_id in range(1, 5):
-        if pode_regar(planta_id):
-            plantas_para_regar.append(planta_id)
-            print(f"[STATUS]: Planta {planta_id} - Pronta para regar ({plantas_rega[planta_id]['dias']}/3 dias)")
-
-    if len(plantas_para_regar) > 0:
-        # Regar planta 1
-        if 1 in plantas_para_regar:
-            print(f"[CONTROL]: Planta 1 - Iniciando rega")
-            regar_planta(1, io.water_pump_1, "Plant 1")
+    for plant_id in range(1, 5):
+        if plants_watering[plant_id]["command"] == 1 and plants_watering[plant_id]["executed"] == 0:
+            print(f"[CONTROL]: Executing pending watering for plant {plant_id}")
+            publish_watering_status(plant_id, 1)
+            water_plant(plant_id)
             sleep(30)
 
-        # Regar planta 2
-        if 2 in plantas_para_regar:
-            print(f"[CONTROL]: Planta 2 - Iniciando rega")
-            regar_planta(2, io.water_pump_2, "Plant 2")
-            sleep(30)
 
-        # Regar planta 3
-        if 3 in plantas_para_regar:
-            print(f"[CONTROL]: Planta 3 - Iniciando rega")
-            regar_planta(3, io.water_pump_3, "Plant 3")
-            sleep(30)
-
-        # Regar planta 4
-        if 4 in plantas_para_regar:
-            print(f"[CONTROL]: Planta 4 - Iniciando rega")
-            regar_planta(4, io.water_pump_4, "Plant 4")
-            sleep(30)
-
-        rega_executada_hoje = True
-        salvar_dados_rega()  # Salva o estado de rega_executada_hoje
-        print(f"[CONTROL]: Ciclo de rega finalizado")
-    else:
-        print(f"[STATUS]: Nenhuma planta precisa de rega no momento")
-
-
-# -----------INTERNET CONECTION ----------#
+# -----------INTERNET CONNECTION-----------#
 def setup_wifi():
     wlan = network.WLAN(network.STA_IF)
     wlan.active(True)
@@ -349,105 +336,104 @@ def setup_wifi():
             print(f"[OK]: WiFi connected!")
             print(f"[OK]: IP: {wlan.ifconfig()[0]}")
             print(f"[OK]: Signal: {wlan.status('rssi')} dBm")
-            webrepl.start()
         else:
             print(f"[ERROR]: WiFi failed!")
 
     return wlan
 
 
-# -----------MQTT CALLBACK (apenas armazena comandos)-----------#
+# -----------MQTT CALLBACK-----------#
 def write_data(topic, message):
-    """Callback MQTT - armazena comandos para processar depois"""
     topic = topic.decode('utf-8')
     value = message.decode('utf-8')
-    comandos_recebidos.append((topic, value))
-    print(f"[MQTT]: Comando recebido - Topic: {topic}, Value: {value}")
+    received_commands.append((topic, value))
+    print(f"[MQTT]: Command received - Topic: {topic}, Value: {value}")
 
 
-# -----------PROCESSAR COMANDOS RECEBIDOS-----------#
-def processar_comandos_mqtt():
-    """Processa todos os comandos recebidos durante o ciclo MQTT"""
+# -----------PROCESS RECEIVED COMMANDS-----------#
+def process_mqtt_commands():
     global plant_global_phase
 
-    for topic, value in comandos_recebidos:
-        # Fase Global
+    for topic, value in received_commands:
+        # Global Phase
         if topic == 'plant_phase':
             try:
-                nova_phase = int(value)
-                if 0 <= nova_phase <= 3:
-                    plant_global_phase = nova_phase
-                    atualizar_parametros_globais()
-                    salvar_fase_global()
-                    print(f"[MQTT]: Fase global alterada para {nova_phase}")
+                new_phase = int(value)
+                if 0 <= new_phase <= 3:
+                    plant_global_phase = new_phase
+                    update_global_parameters()
+                    save_global_phase()
+                    print(f"[MQTT]: Global phase changed to {new_phase}")
                 else:
-                    print(f"[ERROR]: Phase invalida: {nova_phase}. Use 0-3")
+                    print(f"[ERROR]: Invalid phase: {new_phase}. Use 0-3")
             except Exception as e:
-                print(f"[ERROR]: Erro ao processar fase global: {e}")
+                print(f"[ERROR]: Error processing global phase: {e}")
 
-        # Fase individual (quantidade de agua) - worg/watering/plantX
-        elif topic.startswith('worg/watering/'):
+        # Watering amount - worg/watering/plantX
+        elif topic.startswith('worg/watering/') and not topic.startswith('worg/watering/trigger/') and not topic.startswith('worg/watering/error/'):
             try:
-                planta_id = int(topic.split('/')[-1].replace('plant', ''))
-                nova_phase = int(value)
-                if 0 <= nova_phase <= 3:
-                    if planta_id in plantas_rega:
-                        plantas_rega[planta_id]["phase"] = nova_phase
-                        print(f"[MQTT]: Planta {planta_id} - Fase de rega alterada para {nova_phase}")
-                        salvar_dados_rega()
+                plant_id = int(topic.split('/')[-1].replace('plant', ''))
+                new_phase = int(value)
+                if 0 <= new_phase <= 3:
+                    if plant_id in plants_watering:
+                        plants_watering[plant_id]["phase"] = new_phase
+                        print(f"[MQTT]: Plant {plant_id} - Watering amount changed to {new_phase}")
+                        save_watering_data()
                 else:
-                    print(f"[ERROR]: Phase invalida: {nova_phase}. Use 0-3")
+                    print(f"[ERROR]: Invalid phase: {new_phase}. Use 0-3")
             except Exception as e:
-                print(f"[ERROR]: Erro ao processar fase de rega: {e}")
+                print(f"[ERROR]: Error processing watering amount: {e}")
 
-        # Override de dias - worg/days/plantX
-        elif topic.startswith('worg/days/'):
+        # Watering trigger - worg/watering/trigger/plantX
+        elif topic.startswith('worg/watering/trigger/'):
             try:
-                planta_id = int(topic.split('/')[-1].replace('plant', ''))
-                novos_dias = int(value)
-                override_dias_planta(planta_id, novos_dias)
+                plant_id = int(topic.split('/')[-1].replace('plant', ''))
+                trigger = int(value)
+                if trigger == 1:
+                    if plants_watering[plant_id]["executed"] == 0:
+                        plants_watering[plant_id]["command"] = 1
+                        save_watering_data()
+                        print(f"[MQTT]: Plant {plant_id} - Watering command saved (pending)")
+                    else:
+                        print(f"[MQTT]: Plant {plant_id} - Already watered, ignoring command")
+                else:
+                    print(f"[MQTT]: Plant {plant_id} - Invalid trigger value: {trigger}")
             except Exception as e:
-                print(f"[ERROR]: Erro ao processar override: {e}")
+                print(f"[ERROR]: Error processing watering trigger: {e}")
 
-    # Limpa a lista de comandos
-    comandos_recebidos.clear()
+    received_commands.clear()
 
 
-# -----------FUNCAO MQTT: CONECTA, PUBLICA, RECEBE, DESCONECTA-----------#
-def mqtt_ciclo():
-    """Conecta no MQTT, publica dados, recebe comandos e desconecta"""
+# -----------MQTT CYCLE-----------#
+def mqtt_cycle():
     client = None
 
     try:
-        # Verifica se WiFi está conectado
         if not wlan.isconnected():
-            print("[ERROR]: WiFi nao conectado, pulando MQTT")
+            print("[ERROR]: WiFi not connected, skipping MQTT")
             return
 
-        # Cria e conecta cliente
         client = MQTTClient(MQTT_ID, server=MQTT_SERVER, port=MQTT_PORT,
                            user=MQTT_USER, password=MQTT_PASSWORD, keepalive=60)
         client.set_callback(write_data)
         client.connect()
-        print("[OK]: MQTT conectado")
+        print("[OK]: MQTT connected")
 
-        # Inscreve nos topicos
+        # Subscribe to topics
         client.subscribe('plant_phase', qos=1)
-        for planta_id in range(1, 5):
-            client.subscribe(f'worg/watering/plant{planta_id}', qos=1)
-            client.subscribe(f'worg/days/plant{planta_id}', qos=1)
+        for plant_id in range(1, 5):
+            client.subscribe(f'worg/watering/plant{plant_id}', qos=1)
+            client.subscribe(f'worg/watering/trigger/plant{plant_id}', qos=1)
 
-        # Aguarda comandos por 2 segundos
-        print("[MQTT]: Aguardando comandos...")
+        print("[MQTT]: Waiting for commands...")
         start_wait = time.time()
         while time.time() - start_wait < 2:
             client.check_msg()
             sleep(0.1)
 
-        # Processa comandos recebidos
-        processar_comandos_mqtt()
+        process_mqtt_commands()
 
-        # Coleta dados dos sensores
+        # Collect sensor data
         try:
             temp = io.temp()
             humid = io.humid()
@@ -478,7 +464,7 @@ def mqtt_ciclo():
             power_factor = 1
             print("[ERROR]: Getting data from module PZEM")
 
-        # Publica dados
+        # Publish data
         client.publish('plant_phase', str(plant_global_phase), retain=True, qos=1)
         client.publish('worg/weather/temp', f'{{"temperature": {temp}}}', retain=True, qos=1)
         client.publish('worg/weather/humid', f'{{"humidity": {humid}}}', retain=True, qos=1)
@@ -494,8 +480,7 @@ def mqtt_ciclo():
         client.publish('worg/electrical/power_factor', f'{{"power factor": {power_factor}}}', retain=True, qos=1)
         print("[OK]: MQTT electrical published")
 
-        # Publica status dos componentes lendo diretamente dos pinos do MCP23017
-        # Mantem os topicos originais worg/status/
+        # Publish component status
         client.publish('worg/status/water_pump1', "1" if mcp.pin(3) else "0", retain=True, qos=1)
         client.publish('worg/status/water_pump2', "1" if mcp.pin(2) else "0", retain=True, qos=1)
         client.publish('worg/status/water_pump3', "1" if mcp.pin(1) else "0", retain=True, qos=1)
@@ -507,73 +492,69 @@ def mqtt_ciclo():
         client.publish('worg/status/deshumidifier', "1" if mcp.pin(11) else "0", retain=True, qos=1)
         print("[OK]: MQTT control status published")
 
-        # Status das plantas
-        for planta_id in range(1, 5):
-            client.publish(f'worg/plant_status/{planta_id}',
-                          f'{{"rega_phase": {plantas_rega[planta_id]["phase"]}, "dias": {plantas_rega[planta_id]["dias"]}}}',
-                          qos=1)
-        print("[OK]: MQTT plant status published")
+        # Plant status
+        for plant_id in range(1, 5):
+            client.publish(f'worg/plant_status/{plant_id}',
+                           f'{{"phase": {plants_watering[plant_id]["phase"]}}}',
+                           qos=1)
 
     except Exception as e:
-        print(f"[ERROR]: MQTT ciclo falhou: {e}")
+        print(f"[ERROR]: MQTT cycle failed: {e}")
 
     finally:
         if client:
             try:
                 client.disconnect()
-                print("[OK]: MQTT desconectado")
+                print("[OK]: MQTT disconnected")
             except:
                 pass
 
 
-# -----------INICIALIZACAO-----------#
-# Carregar dados salvos
-carregar_fase_global()
-carregar_dados_rega()
-atualizar_parametros_globais()
+# -----------INITIALIZATION-----------#
+# Protecao contra reboot no meio da rega
+reset_all_pumps()
 
-# Conectar WiFi (mantém sempre conectado)
+# Load saved data
+load_global_phase()
+load_watering_data()
+update_global_parameters()
+
+# Connect WiFi
 wlan = setup_wifi()
 
-print("[STATUS]: Sistema iniciado")
+print("[STATUS]: System started")
 sleep(10)
 
-# -----------LOOP PRINCIPAL-----------#
+# -----------MAIN LOOP-----------#
 while True:
-    # Verifica e mantem WiFi conectado
     if not wlan.isconnected():
         print("[ERROR]: WiFi disconnected, reconnecting...")
         wlan = setup_wifi()
         if not wlan.isconnected():
             sleep(30)
-            # Mesmo sem WiFi, o controle continua
         else:
-            # WiFi reconectou, mas MQTT sera feito no proximo ciclo
             pass
 
-    # Executa ciclo MQTT (conecta, publica, recebe, desconecta)
-    # Se falhar, apenas pula - controle nao eh afetado
-    mqtt_ciclo()
+    mqtt_cycle()
 
-    # ========== CONTROLES LOCAIS (sempre executam) ==========
     try:
-        # CONTROLE DE TEMPERATURA (ventiladores)
-        temperatura = io.temp()
+        # TEMPERATURE CONTROL
+        temperature = io.temp()
 
-        if temperatura < 18:
+        if temperature < 18:
             io.fan_1(0)
             io.fan_2(0)
             print("[CONTROL]: FAN 1:OFF, FAN 2:OFF")
-        elif 18 <= temperatura < 22:
+        elif 18 <= temperature < 22:
             io.fan_1(1)
             io.fan_2(0)
             print("[CONTROL]: FAN 1:ON, FAN 2:OFF")
-        else:  # >= 22
+        else:
             io.fan_1(1)
             io.fan_2(1)
             print("[CONTROL]: FAN 1:ON, FAN 2:ON")
 
-        # CONTROLE DE VPD (umidificador/desumidificador)
+        # VPD CONTROL
         vpd_actual = io.vpd()
 
         if vpd_actual < vpd_min:
@@ -589,7 +570,7 @@ while True:
             io.humidifier(1)
             print("[CONTROL]: HUM:ON, DESHUM:OFF")
 
-        # CONTROLE DE ILUMINACAO
+        # LIGHTING CONTROL
         HOUR = ds.hour()
         print(f"[STATUS]: Hour: {HOUR}")
 
@@ -600,32 +581,11 @@ while True:
             io.lighting(1)
             print("[CONTROL]: Lightning: ON")
 
-        # ========== CONTROLE DE REGA (dias acumulados) ==========
-        # Usando o dia do mes para detectar mudanca de dia
-        try:
-            dia_atual = ds.mday()
-        except Exception as e:
-            print(f"[ERROR]: get day: {e}")
-
-        if ultimo_dia is None:
-            ultimo_dia = dia_atual
-            salvar_dados_rega()  # Salva imediatamente o ultimo_dia
-            print(f"[STATUS]: Dia inicial registrado: {dia_atual}")
-        elif dia_atual != ultimo_dia:
-            print(f"[STATUS]: Novo dia detectado! {ultimo_dia} -> {dia_atual}")
-            atualizar_dias_plantas()
-            rega_executada_hoje = False
-            ultimo_dia = dia_atual
-            salvar_dados_rega()  # Salva apos mudanca de dia
-
-        # Executar rega (se possivel)
-        verificar_e_regar_plantas()
+        # WATERING CONTROL (check pending commands)
+        check_pending_watering()
 
     except Exception as e:
-        print(f"[ERROR]: Loop de controle: {e}")
+        print(f"[ERROR]: Control loop: {e}")
 
-    # Aguarda proximo ciclo
-    print(f"[STATUS]: Aguardando {circle} segundos")
+    print(f"[STATUS]: Waiting {circle} seconds")
     sleep(circle)
-
-
