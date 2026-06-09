@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 You can access the source code on site: https://github.com/roninanini/worg
-v1.0
+v1.02
 """
 
 # ┌─────────────────────────────────────────────────────────────┐
@@ -64,7 +64,7 @@ MQTT_PASSWORD = passwords.MQTT_PASSWORD
 i2c = I2C(0, scl=Pin(22), sda=Pin(21), freq=400000)
 mcp = Libs.mcp23017.MCP23017(i2c, 0x27)
 ds = DS3231(i2c)
-circle = 10 * 60   # para teste rápido
+circle = 5 * 60
 
 # -----------GLOBAL VARIABLES (Lighting and VPD)-----------#
 plant_global_phase = 0
@@ -88,13 +88,13 @@ is_watering = False
 def update_global_parameters():
     global vpd_min, vpd_max, hour_min, hour_max
     if plant_global_phase == 1:
-        vpd_min, vpd_max, hour_min, hour_max = 0.5, 0.7, 10, 16
+        vpd_min, vpd_max, hour_min, hour_max = 0.5, 0.8, 10, 16
     elif plant_global_phase == 2:
-        vpd_min, vpd_max, hour_min, hour_max = 0.7, 1.0, 10, 16
+        vpd_min, vpd_max, hour_min, hour_max = 0.8, 1.1, 10, 16
     elif plant_global_phase == 3:
-        vpd_min, vpd_max, hour_min, hour_max = 1.0, 1.3, 7, 19
+        vpd_min, vpd_max, hour_min, hour_max = 1.1, 1.4, 7, 19
     else:
-        vpd_min, vpd_max, hour_min, hour_max = 0.8, 1.2, 10, 16
+        vpd_min, vpd_max, hour_min, hour_max = 0.8, 1.4, 10, 16
     print(f"[STATUS]: Parameters updated - Phase: {plant_global_phase}")
     print(f"[STATUS]: Lighting: {hour_min}h to {hour_max}h")
     print(f"[STATUS]: VPD: {vpd_min} to {vpd_max}")
@@ -174,8 +174,12 @@ def execute_watering_cycle(plant_id, cycles, water_pump):
     except Exception as e:
         print(f"[ERROR]: Plant {plant_id} - Watering interrupted: {e}")
         water_pump(0)
-        # publicar erro
-        mqtt_publish_error(plant_id)
+        # publicar erro (tenta, se WiFi disponível)
+        if wlan.isconnected():
+            try:
+                mqtt_publish_error(plant_id)
+            except:
+                pass
     finally:
         is_watering = False
         return success
@@ -192,20 +196,27 @@ def water_plant(plant_id):
             plants_watering[plant_id]["command"] = 0
             plants_watering[plant_id]["executed"] = 0
             save_watering_data()
-            mqtt_publish_trigger(plant_id, 0)
+            if wlan.isconnected():
+                try:
+                    mqtt_publish_trigger(plant_id, 0)
+                except:
+                    pass
             print(f"[CONTROL]: Plant {plant_id} - Watering successful")
         else:
             plants_watering[plant_id]["command"] = 0
             plants_watering[plant_id]["executed"] = 1
             save_watering_data()
-            mqtt_publish_trigger(plant_id, 0)
             print(f"[CONTROL]: Plant {plant_id} - Watering failed, blocked")
     else:
         print(f"[CONTROL]: Plant {plant_id} - Phase 0, nothing to do")
         plants_watering[plant_id]["command"] = 0
         plants_watering[plant_id]["executed"] = 0
         save_watering_data()
-        mqtt_publish_trigger(plant_id, 0)
+        if wlan.isconnected():
+            try:
+                mqtt_publish_trigger(plant_id, 0)
+            except:
+                pass
 
 def check_pending_watering():
     global is_watering
@@ -214,7 +225,11 @@ def check_pending_watering():
     for pid in range(1,5):
         if plants_watering[pid]["command"] == 1 and plants_watering[pid]["executed"] == 0:
             print(f"[CONTROL]: Executing pending watering for plant {pid}")
-            mqtt_publish_trigger(pid, 1)   # publica 1 antes de regar
+            if wlan.isconnected():
+                try:
+                    mqtt_publish_trigger(pid, 1)
+                except:
+                    pass
             water_plant(pid)
             sleep(30)
             break
@@ -224,13 +239,12 @@ def check_pending_watering():
 def mqtt_publish_trigger(plant_id, status):
     client = None
     try:
-        if wlan.isconnected():
-            client = MQTTClient(MQTT_ID, server=MQTT_SERVER, port=MQTT_PORT,
-                               user=MQTT_USER, password=MQTT_PASSWORD, keepalive=60)
-            client.connect()
-            client.publish(f'worg/watering/trigger/plant{plant_id}', str(status), retain=True, qos=1)
-            client.disconnect()
-            print(f"[MQTT]: Published trigger plant {plant_id} = {status}")
+        client = MQTTClient(MQTT_ID, server=MQTT_SERVER, port=MQTT_PORT,
+                           user=MQTT_USER, password=MQTT_PASSWORD, keepalive=60)
+        client.connect()
+        client.publish(f'worg/watering/trigger/plant{plant_id}', str(status), retain=True, qos=1)
+        client.disconnect()
+        print(f"[MQTT]: Published trigger plant {plant_id} = {status}")
     except Exception as e:
         print(f"[ERROR]: Failed to publish trigger for plant {plant_id}: {e}")
     finally:
@@ -243,13 +257,12 @@ def mqtt_publish_trigger(plant_id, status):
 def mqtt_publish_error(plant_id):
     client = None
     try:
-        if wlan.isconnected():
-            client = MQTTClient(MQTT_ID, server=MQTT_SERVER, port=MQTT_PORT,
-                               user=MQTT_USER, password=MQTT_PASSWORD, keepalive=60)
-            client.connect()
-            client.publish(f'worg/watering/error/plant{plant_id}', '{"error": 1}', retain=True, qos=1)
-            client.disconnect()
-            print(f"[MQTT]: Published error plant {plant_id}")
+        client = MQTTClient(MQTT_ID, server=MQTT_SERVER, port=MQTT_PORT,
+                           user=MQTT_USER, password=MQTT_PASSWORD, keepalive=60)
+        client.connect()
+        client.publish(f'worg/watering/error/plant{plant_id}', '{"error": 1}', retain=True, qos=1)
+        client.disconnect()
+        print(f"[MQTT]: Published error plant {plant_id}")
     except Exception as e:
         print(f"[ERROR]: Failed to publish error for plant {plant_id}: {e}")
     finally:
@@ -263,16 +276,12 @@ def mqtt_publish_sensors():
     """Conecta, publica dados de sensores e status, desconecta."""
     client = None
     try:
-        if not wlan.isconnected():
-            print("[ERROR]: WiFi not connected, skipping MQTT publish")
-            return
-
         client = MQTTClient(MQTT_ID, server=MQTT_SERVER, port=MQTT_PORT,
                            user=MQTT_USER, password=MQTT_PASSWORD, keepalive=60)
         client.connect()
         print("[OK]: MQTT connected for sensor publishing")
 
-        # Leitura dos sensores (rápida)
+        # Leitura dos sensores
         try:
             temp = io.temp()
             humid = io.humid()
@@ -343,10 +352,6 @@ def mqtt_receive_commands():
     client = None
     commands = []
     try:
-        if not wlan.isconnected():
-            print("[ERROR]: WiFi not connected, skipping command receive")
-            return []
-
         client = MQTTClient(MQTT_ID, server=MQTT_SERVER, port=MQTT_PORT,
                            user=MQTT_USER, password=MQTT_PASSWORD, keepalive=60)
         client.set_callback(lambda t, m: commands.append((t.decode('utf-8'), m.decode('utf-8'))))
@@ -422,7 +427,11 @@ def process_mqtt_commands(commands):
                     plants_watering[pid]["command"] = 0
                     plants_watering[pid]["executed"] = 0
                     save_watering_data()
-                    mqtt_publish_trigger(pid, 0)
+                    if wlan.isconnected():
+                        try:
+                            mqtt_publish_trigger(pid, 0)
+                        except:
+                            pass
                     print(f"[MQTT]: Plant {pid} - Manual reset")
                 else:
                     print(f"[MQTT]: Plant {pid} - Invalid trigger {trig}")
@@ -430,24 +439,29 @@ def process_mqtt_commands(commands):
                 pass
 
 
-# -----------INTERNET CONNECTION-----------#
+# -----------INTERNET CONNECTION (não bloqueante)-----------#
 def setup_wifi():
-    wlan = network.WLAN(network.STA_IF)
-    wlan.active(True)
-    print("[STATUS]: Connecting to WiFi...")
-    if not wlan.isconnected():
-        wlan.connect(SSID, PASSWORD)
-        timeout = 15
-        start = time.time()
-        while not wlan.isconnected() and (time.time() - start) < timeout:
-            print(".", end="")
-            sleep(1)
-        print()
-        if wlan.isconnected():
-            print(f"[OK]: WiFi connected! IP: {wlan.ifconfig()[0]}")
-            print(f"[OK]: Signal: {wlan.status('rssi')} dBm")
-        else:
-            print("[ERROR]: WiFi failed!")
+    global wlan
+    try:
+        wlan = network.WLAN(network.STA_IF)
+        wlan.active(True)
+        print("[STATUS]: Connecting to WiFi...")
+        if not wlan.isconnected():
+            wlan.connect(SSID, PASSWORD)
+            timeout = 15
+            start = time.time()
+            while not wlan.isconnected() and (time.time() - start) < timeout:
+                print(".", end="")
+                sleep(1)
+            print()
+            if wlan.isconnected():
+                print(f"[OK]: WiFi connected! IP: {wlan.ifconfig()[0]}")
+                print(f"[OK]: Signal: {wlan.status('rssi')} dBm")
+            else:
+                print("[ERROR]: WiFi failed!")
+    except Exception as e:
+        print(f"[ERROR]: WiFi setup error: {e}")
+        wlan = None
     return wlan
 
 
@@ -456,43 +470,76 @@ reset_all_pumps()
 load_global_phase()
 load_watering_data()
 update_global_parameters()
+
+# Tenta conectar WiFi (se falhar, continua sem)
 wlan = setup_wifi()
+if wlan is None or not wlan.isconnected():
+    print("[WARNING]: No WiFi connection, running in offline mode")
+
 print("[STATUS]: System started")
 sleep(10)
 
 # -----------MAIN LOOP-----------#
 while True:
-    if not wlan.isconnected():
-        print("[ERROR]: WiFi disconnected, reconnecting...")
-        wlan = setup_wifi()
+    # Verifica WiFi apenas se já estava conectado, sem forçar reconexão pesada
+    if wlan is not None:
         if not wlan.isconnected():
-            sleep(30)
-            continue
+            print("[WARNING]: WiFi lost, trying to reconnect...")
+            try:
+                wlan.disconnect()
+                wlan.connect(SSID, PASSWORD)
+                timeout = 10
+                start = time.time()
+                while not wlan.isconnected() and (time.time() - start) < timeout:
+                    sleep(0.5)
+                if wlan.isconnected():
+                    print(f"[OK]: WiFi reconnected! IP: {wlan.ifconfig()[0]}")
+                else:
+                    print("[WARNING]: WiFi still disconnected, continuing offline")
+            except Exception as e:
+                print(f"[WARNING]: WiFi reconnect error: {e}")
 
-    # 1. Receber comandos MQTT (conecta, escuta pouco, desconecta)
-    cmds = mqtt_receive_commands()
-    process_mqtt_commands(cmds)
+    # ===== MQTT (apenas se WiFi estiver conectado) =====
+    if wlan is not None and wlan.isconnected():
+        try:
+            # 1. Receber comandos MQTT
+            cmds = mqtt_receive_commands()
+            if cmds:
+                process_mqtt_commands(cmds)
+        except Exception as e:
+            print(f"[WARNING]: MQTT receive failed: {e}")
 
-    # 2. Publicar dados de sensores e status (conecta, publica, desconecta)
-    mqtt_publish_sensors()
+        try:
+            # 2. Publicar dados de sensores e status
+            mqtt_publish_sensors()
+        except Exception as e:
+            print(f"[WARNING]: MQTT publish failed: {e}")
+    else:
+        print("[INFO]: Offline mode - MQTT skipped")
 
-    # 3. Controles locais (temperatura, VPD, iluminação)
+    # ===== CONTROLES LOCAIS (sempre executam, independente de WiFi) =====
     try:
         temp = io.temp()
         if temp < 18:
-            io.fan_1(0); io.fan_2(0)
+            io.fan_1(0)
+            io.fan_2(0)
         elif 18 <= temp < 22:
-            io.fan_1(1); io.fan_2(0)
+            io.fan_1(1)
+            io.fan_2(0)
         else:
-            io.fan_1(1); io.fan_2(1)
+            io.fan_1(1)
+            io.fan_2(1)
 
         vpd_actual = io.vpd()
         if vpd_actual < vpd_min:
-            io.deshumidifier(1); io.humidifier(0)
+            io.deshumidifier(1)
+            io.humidifier(0)
         elif vpd_min <= vpd_actual < vpd_max:
-            io.deshumidifier(0); io.humidifier(0)
+            io.deshumidifier(0)
+            io.humidifier(0)
         else:
-            io.deshumidifier(0); io.humidifier(1)
+            io.deshumidifier(0)
+            io.humidifier(1)
 
         hour = ds.hour()
         if hour_min <= hour < hour_max:
@@ -500,7 +547,7 @@ while True:
         else:
             io.lighting(1)
 
-        # 4. Verificar regas pendentes (executa uma por ciclo)
+        # Verificar regas pendentes
         check_pending_watering()
 
     except Exception as e:
