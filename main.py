@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 You can access the source code on site: https://github.com/roninanini/worg
-v1.02
+v1.05
 """
 
 # ┌─────────────────────────────────────────────────────────────┐
@@ -308,28 +308,28 @@ def mqtt_publish_sensors():
         client.publish('plant_phase', str(plant_global_phase), retain=True, qos=1)
         client.publish('worg/weather/temp', f'{{"temperature": {temp}}}', retain=True, qos=1)
         client.publish('worg/weather/humid', f'{{"humidity": {humid}}}', retain=True, qos=1)
-        client.publish('worg/weather/pressure', f'{{"pressure": {pressure}}}', retain=True, qos=1)
+        #client.publish('worg/weather/pressure', f'{{"pressure": {pressure}}}', retain=True, qos=1)
         client.publish('worg/weather/vpd', f'{{"Vapour-pressure deficit": {vpd}}}', retain=True, qos=1)
         print("[OK]: MQTT weather published")
 
-        client.publish('worg/electrical/voltage', f'{{"voltage": {voltage}}}', retain=True, qos=1)
+        #client.publish('worg/electrical/voltage', f'{{"voltage": {voltage}}}', retain=True, qos=1)
         client.publish('worg/electrical/current', f'{{"current": {current_val}}}', retain=True, qos=1)
         client.publish('worg/electrical/active_power', f'{{"active power": {active_power}}}', retain=True, qos=1)
         client.publish('worg/electrical/active_energy', f'{{"active energy": {active_energy}}}', retain=True, qos=1)
-        client.publish('worg/electrical/frequency', f'{{"frequency": {frequency}}}', retain=True, qos=1)
-        client.publish('worg/electrical/power_factor', f'{{"power factor": {power_factor}}}', retain=True, qos=1)
+        #client.publish('worg/electrical/frequency', f'{{"frequency": {frequency}}}', retain=True, qos=1)
+        #client.publish('worg/electrical/power_factor', f'{{"power factor": {power_factor}}}', retain=True, qos=1)
         print("[OK]: MQTT electrical published")
 
-        client.publish('worg/status/water_pump1', "1" if mcp.pin(3) else "0", retain=True, qos=1)
-        client.publish('worg/status/water_pump2', "1" if mcp.pin(2) else "0", retain=True, qos=1)
-        client.publish('worg/status/water_pump3', "1" if mcp.pin(1) else "0", retain=True, qos=1)
-        client.publish('worg/status/water_pump4', "1" if mcp.pin(0) else "0", retain=True, qos=1)
-        client.publish('worg/status/lighting', "1" if mcp.pin(13) else "0", retain=True, qos=1)
-        client.publish('worg/status/fan_1', "1" if mcp.pin(15) else "0", retain=True, qos=1)
-        client.publish('worg/status/fan_2', "1" if mcp.pin(14) else "0", retain=True, qos=1)
-        client.publish('worg/status/humidifier', "1" if mcp.pin(12) else "0", retain=True, qos=1)
-        client.publish('worg/status/deshumidifier', "1" if mcp.pin(11) else "0", retain=True, qos=1)
-        print("[OK]: MQTT control status published")
+        #client.publish('worg/status/water_pump1', "1" if mcp.pin(3) else "0", retain=True, qos=1)
+        #client.publish('worg/status/water_pump2', "1" if mcp.pin(2) else "0", retain=True, qos=1)
+        #client.publish('worg/status/water_pump3', "1" if mcp.pin(1) else "0", retain=True, qos=1)
+        #client.publish('worg/status/water_pump4', "1" if mcp.pin(0) else "0", retain=True, qos=1)
+        #client.publish('worg/status/lighting', "1" if mcp.pin(13) else "0", retain=True, qos=1)
+        #client.publish('worg/status/fan_1', "1" if mcp.pin(15) else "0", retain=True, qos=1)
+        #client.publish('worg/status/fan_2', "1" if mcp.pin(14) else "0", retain=True, qos=1)
+        #client.publish('worg/status/humidifier', "1" if mcp.pin(12) else "0", retain=True, qos=1)
+        #client.publish('worg/status/deshumidifier', "1" if mcp.pin(11) else "0", retain=True, qos=1)
+        #print("[OK]: MQTT control status published")
 
         for pid in range(1,5):
             client.publish(f'worg/plant_status/{pid}', f'{{"phase": {plants_watering[pid]["phase"]}}}', qos=1)
