@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 You can access the source code on site: https://github.com/roninanini/worg
-v1.05
+v1.08
 """
 
 # ┌─────────────────────────────────────────────────────────────┐
@@ -64,7 +64,7 @@ MQTT_PASSWORD = passwords.MQTT_PASSWORD
 i2c = I2C(0, scl=Pin(22), sda=Pin(21), freq=400000)
 mcp = Libs.mcp23017.MCP23017(i2c, 0x27)
 ds = DS3231(i2c)
-circle = 5 * 60
+circle = 60*5
 
 # -----------GLOBAL VARIABLES (Lighting and VPD)-----------#
 plant_global_phase = 0
@@ -88,13 +88,13 @@ is_watering = False
 def update_global_parameters():
     global vpd_min, vpd_max, hour_min, hour_max
     if plant_global_phase == 1:
-        vpd_min, vpd_max, hour_min, hour_max = 0.5, 0.8, 10, 16
+        vpd_min, vpd_max, hour_min, hour_max = 0.4, 0.8, 11, 17
     elif plant_global_phase == 2:
-        vpd_min, vpd_max, hour_min, hour_max = 0.8, 1.1, 10, 16
+        vpd_min, vpd_max, hour_min, hour_max = 0.8, 1.2, 11, 17
     elif plant_global_phase == 3:
-        vpd_min, vpd_max, hour_min, hour_max = 1.1, 1.4, 7, 19
+        vpd_min, vpd_max, hour_min, hour_max = 1.2, 1.6, 7, 19
     else:
-        vpd_min, vpd_max, hour_min, hour_max = 0.8, 1.4, 10, 16
+        vpd_min, vpd_max, hour_min, hour_max = 0.8, 1.4, 11, 17
     print(f"[STATUS]: Parameters updated - Phase: {plant_global_phase}")
     print(f"[STATUS]: Lighting: {hour_min}h to {hour_max}h")
     print(f"[STATUS]: VPD: {vpd_min} to {vpd_max}")
@@ -167,7 +167,7 @@ def execute_watering_cycle(plant_id, cycles, water_pump):
             sleep(10)
             water_pump(0)
             if cycles > 1:
-                sleep(10)
+                sleep(20)
             cycles -= 1
         print(f"[CONTROL]: Plant {plant_id} - Watering completed")
         success = True
@@ -187,7 +187,7 @@ def execute_watering_cycle(plant_id, cycles, water_pump):
 def water_plant(plant_id):
     state = plants_watering[plant_id]["phase"]
     print(f"[CONTROL]: Watering plant {plant_id} - Amount: {state}")
-    cycles = {0:0, 1:4, 2:8, 3:22}.get(state, 0)
+    cycles = {0:0, 1:4, 2:9, 3:13}.get(state, 0)
 
     if cycles > 0:
         pump = getattr(io, f'water_pump_{plant_id}')
