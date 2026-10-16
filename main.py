@@ -313,7 +313,7 @@ def mqtt_publish_sensors():
         print("[OK]: MQTT weather published")
 
         #client.publish('worg/electrical/voltage', f'{{"voltage": {voltage}}}', retain=True, qos=1)
-        client.publish('worg/electrical/current', f'{{"current": {current_val}}}', retain=True, qos=1)
+        #client.publish('worg/electrical/current', f'{{"current": {current_val}}}', retain=True, qos=1)
         client.publish('worg/electrical/active_power', f'{{"active power": {active_power}}}', retain=True, qos=1)
         client.publish('worg/electrical/active_energy', f'{{"active energy": {active_energy}}}', retain=True, qos=1)
         #client.publish('worg/electrical/frequency', f'{{"frequency": {frequency}}}', retain=True, qos=1)
